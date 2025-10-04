@@ -17,6 +17,7 @@ from .llm import OpenRouterClient
 from .routes.storage import router as storage_router
 from .routes.projects import router as projects_router
 from .routes.characters import router as characters_router
+from .routes.worlds import router as worlds_router
 from .vector_store import vector_store
 
 load_dotenv()
@@ -296,6 +297,7 @@ def create_app() -> FastAPI:
     app.include_router(storage_router, prefix="/api")
     app.include_router(projects_router, prefix="/api")
     app.include_router(characters_router, prefix="/api")
+    app.include_router(worlds_router, prefix="/api")
 
     @app.on_event("startup")
     async def ensure_vector_store() -> None:  # pragma: no cover - startup hook

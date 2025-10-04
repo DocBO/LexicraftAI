@@ -104,6 +104,32 @@ export const storageService = {
       method: 'DELETE'
     });
   },
+
+  async listWorldFacts(workspaceId = 'default') {
+    if (!this.isBackendEnabled()) {
+      return [];
+    }
+    return await request(`/api/worlds?workspaceId=${encodeURIComponent(workspaceId)}`);
+  },
+
+  async saveWorldFact(fact, workspaceId = 'default') {
+    if (!this.isBackendEnabled()) {
+      return fact;
+    }
+    return await request(`/api/worlds?workspaceId=${encodeURIComponent(workspaceId)}`, {
+      method: 'POST',
+      body: JSON.stringify(fact)
+    });
+  },
+
+  async deleteWorldFact(id, workspaceId = 'default') {
+    if (!this.isBackendEnabled()) {
+      return { success: true };
+    }
+    return await request(`/api/worlds/${id}?workspaceId=${encodeURIComponent(workspaceId)}`, {
+      method: 'DELETE'
+    });
+  },
   async listProjects() {
     if (!this.isBackendEnabled()) {
       return [{ id: 'default', name: 'Local Workspace' }];

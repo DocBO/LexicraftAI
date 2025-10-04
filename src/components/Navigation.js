@@ -33,6 +33,7 @@ const Navigation = () => {
   };
 
   const navItems = [
+    { path: '/world-builder', label: 'World Builder', icon: '🌍' },
     { path: '/', label: 'Writer\'s Flow', icon: '›' },
     { path: '/enhanced-paraphraser', label: 'Literary Paraphraser', icon: '›' },
     { path: '/grammar-checker', label: 'Grammar Pro', icon: '›' },

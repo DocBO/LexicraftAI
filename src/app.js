@@ -15,6 +15,7 @@ import ReadabilityOptimizer from './components/ReadabilityOptimizer';
 import ScriptBreakdown from './components/ScriptBreakdown';
 import ShotListManager from './components/ShotListManager';
 import Navigation from './components/Navigation';
+import WorldBuilder from './components/WorldBuilder';
 
 const App = () => {
   return (
@@ -25,6 +26,7 @@ const App = () => {
           <Routes>
             <Route path="/" element={<MainEditor />} />
             <Route path="/paraphraser" element={<Paraphraser />} />
+            <Route path="/world-builder" element={<WorldBuilder />} />
             <Route path="/enhanced-paraphraser" element={<EnhancedParaphraser />} />
             <Route path="/summarizer" element={<Summarizer />} />
             <Route path="/tone-analyzer" element={<ToneAnalyzer />} />

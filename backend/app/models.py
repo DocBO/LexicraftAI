@@ -63,3 +63,14 @@ class CharacterProfile(SQLModel, table=True):
     suggestions_json: str = ""
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class WorldFact(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    workspace_id: str = Field(foreign_key="workspace.id", index=True)
+    title: str = Field(index=True)
+    summary: str = ""
+    details_json: str = ""
+    tags: str = ""
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)

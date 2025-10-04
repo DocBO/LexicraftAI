@@ -279,7 +279,16 @@ body {
   font-size: 0.9rem;
 }
 
-.character-saved-panel {
+.status-message {
+  margin: 0.5rem 0;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.character-saved-panel,
+.world-saved-panel {
   margin-bottom: 1.5rem;
   padding: 1rem;
   background: var(--bg-secondary);
@@ -287,14 +296,48 @@ body {
   border: 1px solid var(--border-color);
 }
 
-.character-saved-panel .saved-header {
+.world-builder .world-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.world-builder .world-form input,
+.world-builder .world-form textarea {
+  padding: 0.6rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.world-builder .world-fact-preview {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  background: var(--bg-secondary);
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+}
+
+.world-builder .world-fact-preview pre {
+  background: var(--bg-primary);
+  padding: 0.75rem;
+  border-radius: 6px;
+  max-height: 200px;
+  overflow: auto;
+}
+
+.character-saved-panel .saved-header,
+.world-saved-panel .saved-header {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 0.5rem;
 }
 
-.character-saved-panel .saved-controls {
+.character-saved-panel .saved-controls,
+.world-saved-panel .saved-controls {
   display: flex;
   align-items: center;
   gap: 0.75rem;
@@ -302,12 +345,14 @@ body {
   margin-top: 0.5rem;
 }
 
-.character-saved-panel .saved-controls label {
+.character-saved-panel .saved-controls label,
+.world-saved-panel .saved-controls label {
   font-weight: 500;
   color: var(--text-secondary);
 }
 
-.character-saved-panel .saved-controls select {
+.character-saved-panel .saved-controls select,
+.world-saved-panel .saved-controls select {
   flex: 1;
   padding: 0.4rem 0.5rem;
   border-radius: 6px;
@@ -316,7 +361,8 @@ body {
   color: var(--text-primary);
 }
 
-.character-saved-panel .saved-actions {
+.character-saved-panel .saved-actions,
+.world-saved-panel .saved-actions {
   display: flex;
   gap: 0.5rem;
 }
