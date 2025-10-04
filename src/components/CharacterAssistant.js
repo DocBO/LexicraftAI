@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { geminiService } from '../services/geminiAPI';
+import { storageService } from '../services/storageService';
+import { useProject } from '../context/ProjectContext';
 
 const CharacterAssistant = () => {
   const [characterName, setCharacterName] = useState('');
@@ -9,6 +11,63 @@ const CharacterAssistant = () => {
   const [loading, setLoading] = useState({});
   const [error, setError] = useState('');
   const [analysisType, setAnalysisType] = useState('voice');
+  const { activeProject } = useProject();
+  const storageEnabled = storageService.isBackendEnabled();
+  const [characters, setCharacters] = useState([]);
+  const [selectedCharacterId, setSelectedCharacterId] = useState(null);
+
+  const localKey = useMemo(() => `characters_${activeProject}`, [activeProject]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadCharacters = async () => {
+      if (storageEnabled) {
+        try {
+          const list = await storageService.listCharacters(activeProject);
+          if (!cancelled) {
+            setCharacters(list || []);
+            setSelectedCharacterId(null);
+            setCharacterName('');
+            setCharacterText('');
+            setAnalysis(null);
+            setSuggestions(null);
+          }
+        } catch (err) {
+          if (!cancelled) setError('Failed to load characters: ' + err.message);
+        }
+      } else {
+        const cached = localStorage.getItem(localKey);
+        if (!cancelled && cached) {
+          try {
+            const parsed = JSON.parse(cached);
+            setCharacters(Array.isArray(parsed) ? parsed : []);
+            setSelectedCharacterId(null);
+            setCharacterName('');
+            setCharacterText('');
+            setAnalysis(null);
+            setSuggestions(null);
+          } catch (err) {
+            console.warn('Failed to parse cached characters', err);
+            setCharacters([]);
+          }
+        } else if (!cancelled) {
+          setCharacters([]);
+          setSelectedCharacterId(null);
+          setCharacterName('');
+          setCharacterText('');
+          setAnalysis(null);
+          setSuggestions(null);
+        }
+      }
+    };
+
+    loadCharacters();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [storageEnabled, activeProject, localKey]);
 
   const analysisTypes = [
     { value: 'voice', label: 'Character Voice Analysis' },
@@ -62,9 +121,98 @@ const CharacterAssistant = () => {
     }
   };
 
+  const persistCharacters = (next) => {
+    setCharacters(next);
+    if (!storageEnabled) {
+      localStorage.setItem(localKey, JSON.stringify(next));
+    }
+  };
+
+  const saveCharacterProfile = async () => {
+    if (!characterName.trim()) {
+      setError('Character name is required to save');
+      return;
+    }
+    const payload = {
+      id: selectedCharacterId,
+      name: characterName,
+      sourceText: characterText,
+      analysis,
+      suggestions,
+    };
+
+    try {
+      let saved = payload;
+      if (storageEnabled) {
+        saved = await storageService.saveCharacter(payload, activeProject);
+      } else {
+        if (!payload.id) {
+          saved = { ...payload, id: Date.now() };
+        }
+      }
+      const withoutCurrent = characters.filter(ch => ch.id !== saved.id);
+      const next = [saved, ...withoutCurrent];
+      persistCharacters(next);
+      setSelectedCharacterId(saved.id);
+      setError('');
+    } catch (err) {
+      setError('Failed to save character: ' + err.message);
+    }
+  };
+
+  const deleteCharacterProfile = async (id) => {
+    try {
+      if (storageEnabled && id) {
+        await storageService.deleteCharacter(id, activeProject);
+      }
+      const next = characters.filter(ch => ch.id !== id);
+      persistCharacters(next);
+      if (selectedCharacterId === id) {
+        setSelectedCharacterId(null);
+        setCharacterName('');
+        setCharacterText('');
+        setAnalysis(null);
+        setSuggestions(null);
+      }
+    } catch (err) {
+      setError('Failed to delete character: ' + err.message);
+    }
+  };
+
+  const loadCharacter = (character) => {
+    setSelectedCharacterId(character.id);
+    setCharacterName(character.name || '');
+    setCharacterText(character.sourceText || '');
+    setAnalysis(character.analysis || null);
+    setSuggestions(Array.isArray(character.suggestions) ? character.suggestions : null);
+  };
+
   return (
     <div className="component character-assistant">
       <h2>👥 Character Development Assistant</h2>
+
+      <div className="character-saved-panel">
+        <div className="saved-header">
+          <h3>Saved Characters</h3>
+          <button className="button secondary" onClick={saveCharacterProfile} disabled={!characterName.trim()}>
+            Save Character
+          </button>
+        </div>
+        {characters.length === 0 ? (
+          <p className="text-muted">No characters saved yet.</p>
+        ) : (
+          <ul className="saved-character-list">
+            {characters.map(character => (
+              <li key={character.id} className={character.id === selectedCharacterId ? 'active' : ''}>
+                <button onClick={() => loadCharacter(character)}>{character.name}</button>
+                <span className="actions">
+                  <button onClick={() => deleteCharacterProfile(character.id)} title="Delete">🗑</button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
       
       <div className="character-controls">
         <div className="character-input">

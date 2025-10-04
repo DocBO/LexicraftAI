@@ -52,3 +52,14 @@ class Shot(SQLModel, table=True):
     selection_end: Optional[int] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class CharacterProfile(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    workspace_id: str = Field(foreign_key="workspace.id", index=True)
+    name: str = Field(index=True)
+    source_text: str = ""
+    analysis_json: str = ""
+    suggestions_json: str = ""
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)

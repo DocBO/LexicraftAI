@@ -75,6 +75,32 @@ export const storageService = {
       body: JSON.stringify({ workspaceId, script, shots }),
     });
   },
+
+  async listCharacters(workspaceId = 'default') {
+    if (!this.isBackendEnabled()) {
+      return [];
+    }
+    return await request(`/api/characters?workspaceId=${encodeURIComponent(workspaceId)}`);
+  },
+
+  async saveCharacter(character, workspaceId = 'default') {
+    if (!this.isBackendEnabled()) {
+      return character;
+    }
+    return await request(`/api/characters?workspaceId=${encodeURIComponent(workspaceId)}`, {
+      method: 'POST',
+      body: JSON.stringify(character)
+    });
+  },
+
+  async deleteCharacter(id, workspaceId = 'default') {
+    if (!this.isBackendEnabled()) {
+      return { success: true };
+    }
+    return await request(`/api/characters/${id}?workspaceId=${encodeURIComponent(workspaceId)}`, {
+      method: 'DELETE'
+    });
+  },
   async listProjects() {
     if (!this.isBackendEnabled()) {
       return [{ id: 'default', name: 'Local Workspace' }];

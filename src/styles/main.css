@@ -274,6 +274,57 @@ body {
   margin-top: 1rem;
 }
 
+.text-muted {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.character-saved-panel {
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background: var(--bg-secondary);
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+}
+
+.character-saved-panel .saved-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.character-saved-panel .saved-character-list {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+}
+
+.character-saved-panel .saved-character-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.35rem 0.5rem;
+  border-radius: 6px;
+  transition: background 0.2s ease;
+}
+
+.character-saved-panel .saved-character-list li.active {
+  background: var(--bg-tertiary);
+}
+
+.character-saved-panel .saved-character-list li button {
+  border: none;
+  background: none;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.character-saved-panel .saved-character-list li .actions button {
+  margin-left: 0.5rem;
+  color: var(--text-secondary);
+}
+
 /* Mobile Navigation Styles */
 .mobile-menu-toggle {
   display: none;
