@@ -3,8 +3,12 @@ import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import { geminiService } from '../services/geminiAPI';
 import ApiKeyModal from './ApiKeyModal';
+import { useProject } from '../context/ProjectContext';
 
 const MainEditor = () => {
+  const usingBackend = geminiService.usingBackend;
+  const { projects, activeProject } = useProject();
+  const activeProjectName = projects.find(p => p.id === activeProject)?.name || activeProject;
   const [text, setText] = useState('');
   const [selectedText, setSelectedText] = useState('');
   const [synonyms, setSynonyms] = useState([]);
@@ -16,20 +20,29 @@ const MainEditor = () => {
   const [compareMode, setCompareMode] = useState(false);
   const [compareResults, setCompareResults] = useState([]);
   const [showApiModal, setShowApiModal] = useState(false);
-  const [apiKeySet, setApiKeySet] = useState(false);
+  const [apiKeySet, setApiKeySet] = useState(usingBackend);
   const [error, setError] = useState('');
   
   const quillRef = useRef(null);
 
   useEffect(() => {
     const savedKey = localStorage.getItem('gemini_api_key');
+    if (usingBackend) {
+      if (savedKey) {
+        geminiService.setApiKey(savedKey);
+      }
+      setApiKeySet(true);
+      setShowApiModal(false);
+      return;
+    }
+
     if (savedKey) {
       geminiService.setApiKey(savedKey);
       setApiKeySet(true);
     } else {
       setShowApiModal(true);
     }
-  }, []);
+  }, [usingBackend]);
 
   const handleApiKeySet = (apiKey) => {
     geminiService.setApiKey(apiKey);
@@ -42,7 +55,7 @@ const MainEditor = () => {
   };
 
   const handleTextSelection = async () => {
-    if (!apiKeySet) {
+    if (!apiKeySet && !usingBackend) {
       setShowApiModal(true);
       return;
     }
@@ -101,7 +114,7 @@ const MainEditor = () => {
   };
 
   const handleParaphrase = async (mode, customPrompt = '') => {
-    if (!apiKeySet) {
+    if (!apiKeySet && !usingBackend) {
       setShowApiModal(true);
       return;
     }
@@ -141,7 +154,7 @@ const MainEditor = () => {
   };
 
   const handleSummarize = async (length = 'medium') => {
-    if (!apiKeySet) {
+    if (!apiKeySet && !usingBackend) {
       setShowApiModal(true);
       return;
     }
@@ -164,7 +177,7 @@ const MainEditor = () => {
   };
 
   const handleToneAnalysis = async () => {
-    if (!apiKeySet) {
+    if (!apiKeySet && !usingBackend) {
       setShowApiModal(true);
       return;
     }
@@ -187,7 +200,7 @@ const MainEditor = () => {
   };
 
   const handleHumanize = async () => {
-    if (!apiKeySet) {
+    if (!apiKeySet && !usingBackend) {
       setShowApiModal(true);
       return;
     }
@@ -216,7 +229,10 @@ const MainEditor = () => {
       <ApiKeyModal isOpen={showApiModal} onApiKeySet={handleApiKeySet} />
       
       <div className="editor-header">
-        <h1 style={{ textAlign: 'center', fontWeight: 'bold', fontSize: '2em', margin: '0.5em 0', flexGrow: 1 }}>LexicraftAI</h1>
+        <div style={{ flexGrow: 1 }}>
+          <h1 style={{ textAlign: 'center', fontWeight: 'bold', fontSize: '2em', margin: '0.5em 0' }}>LexicraftAI</h1>
+          <p style={{ textAlign: 'center', margin: 0, color: '#888' }}>Project: {activeProjectName}</p>
+        </div>
         <div className="header-meta">
           <div className="author-info">
             <span>by euclidstellar</span>
@@ -283,7 +299,7 @@ const MainEditor = () => {
                 <button
                   key={mode}
                   onClick={() => handleParaphrase(mode)}
-                  disabled={loading[mode] || !apiKeySet}
+                  disabled={loading[mode] || (!apiKeySet && !usingBackend)}
                   className="mode-btn"
                 >
                   {loading[mode] ? 'Processing...' : mode}
@@ -295,13 +311,13 @@ const MainEditor = () => {
           <div className="tool-group">
             <h3>Analysis Tools</h3>
             <div className="analysis-buttons">
-              <button onClick={handleToneAnalysis} disabled={loading.tone || !apiKeySet}>
+              <button onClick={handleToneAnalysis} disabled={loading.tone || (!apiKeySet && !usingBackend)}>
                 {loading.tone ? 'Analyzing...' : 'Tone Insights'}
               </button>
-              <button onClick={handleSummarize} disabled={loading.summarize || !apiKeySet}>
+              <button onClick={handleSummarize} disabled={loading.summarize || (!apiKeySet && !usingBackend)}>
                 {loading.summarize ? 'Summarizing...' : 'Summarize'}
               </button>
-              <button onClick={handleHumanize} disabled={loading.humanize || !apiKeySet}>
+              <button onClick={handleHumanize} disabled={loading.humanize || (!apiKeySet && !usingBackend)}>
                 {loading.humanize ? 'Humanizing...' : 'AI Humanizer'}
               </button>
             </div>

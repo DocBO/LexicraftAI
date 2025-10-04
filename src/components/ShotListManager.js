@@ -2,13 +2,17 @@ import React, { useState, useRef, useEffect } from 'react';
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import { geminiService } from '../services/geminiAPI';
+import { storageService } from '../services/storageService';
+import { useProject } from '../context/ProjectContext';
 
 const ShotListManager = () => {
+  const { activeProject } = useProject();
+  const storageEnabled = storageService.isBackendEnabled();
   const [script, setScript] = useState('');
   const [shots, setShots] = useState([]);
   const [currentScene, setCurrentScene] = useState('1');
   const [currentShot, setCurrentShot] = useState({
-    id: Date.now(),
+    id: Date.now().toString(),
     scene: '1',
     shotNumber: '1',
     description: '',
@@ -29,33 +33,85 @@ const ShotListManager = () => {
   const [selectedScriptSegment, setSelectedScriptSegment] = useState('');
   const [scriptSelection, setScriptSelection] = useState({ start: 0, end: 0 });
   const [error, setError] = useState('');
+  const [storageReady, setStorageReady] = useState(!storageEnabled);
   
   const quillRef = useRef(null);
   const shotListRef = useRef(null);
+  const storageInitializedRef = useRef(false);
 
   useEffect(() => {
-    // Load saved shots from localStorage
-    const savedShots = localStorage.getItem('shot_list');
-    if (savedShots) {
-      setShots(JSON.parse(savedShots));
+    storageInitializedRef.current = false;
+    let cancelled = false;
+
+    setStorageReady(!storageEnabled);
+
+    const loadState = async () => {
+      if (storageEnabled) {
+        try {
+          const response = await storageService.loadShotList(activeProject);
+          if (!cancelled) {
+            if (response?.shots) {
+              setShots(response.shots);
+            }
+            if (typeof response?.script === 'string') {
+              setScript(response.script);
+            }
+          }
+        } catch (err) {
+          if (!cancelled) {
+            setError('Failed to load saved shot list: ' + err.message);
+          }
+        } finally {
+          if (!cancelled) {
+            setStorageReady(true);
+          }
+        }
+      } else {
+        const savedShots = localStorage.getItem(`shot_list_${activeProject}`);
+        const savedScript = localStorage.getItem(`shot_list_script_${activeProject}`);
+        if (!cancelled && savedShots) {
+          setShots(JSON.parse(savedShots));
+        }
+        if (!cancelled && savedScript) {
+          setScript(savedScript);
+        }
+        if (!cancelled) {
+          setStorageReady(true);
+        }
+      }
+    };
+
+    loadState();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [storageEnabled, activeProject]);
+
+  useEffect(() => {
+    if (!storageReady) {
+      return;
     }
-    
-    // Load saved script from localStorage
-    const savedScript = localStorage.getItem('shot_list_script');
-    if (savedScript) {
-      setScript(savedScript);
+
+    if (!storageEnabled) {
+      localStorage.setItem(`shot_list_${activeProject}`, JSON.stringify(shots));
+      localStorage.setItem(`shot_list_script_${activeProject}`, script);
+      return;
     }
-  }, []);
 
-  useEffect(() => {
-    // Save shots to localStorage when they change
-    localStorage.setItem('shot_list', JSON.stringify(shots));
-  }, [shots]);
+    if (!storageInitializedRef.current) {
+      storageInitializedRef.current = true;
+      return;
+    }
 
-  useEffect(() => {
-    // Save script to localStorage when it changes
-    localStorage.setItem('shot_list_script', script);
-  }, [script]);
+    const timeout = setTimeout(() => {
+      storageService
+        .saveShotList({ script, shots }, activeProject)
+        .catch((err) => setError('Failed to save shot list: ' + err.message));
+    }, 600);
+
+    return () => clearTimeout(timeout);
+  }, [shots, script, storageEnabled, storageReady, activeProject]);
 
   const shotTypes = [
     'ECU', 'CU', 'MCU', 'MS', 'MLS', 'LS', 'ELS', 'WS', 
@@ -101,27 +157,29 @@ const ShotListManager = () => {
   };
 
   const addShot = () => {
+    if (!storageReady) return;
+
     const newShot = {
       ...currentShot,
-      id: editingShotId || Date.now(),
+      id: editingShotId || Date.now().toString(),
       scriptSegment: selectedScriptSegment,
       scriptSelection: scriptSelection
     };
     
     if (editingShotId) {
       // Update existing shot
-      setShots(prev => prev.map(shot => 
+    setShots(prev => prev.map(shot => 
         shot.id === editingShotId ? newShot : shot
       ));
       setEditingShotId(null);
     } else {
       // Add new shot
-      setShots(prev => [...prev, newShot]);
+    setShots(prev => [...prev, newShot]);
     }
     
     // Reset current shot
     setCurrentShot({
-      id: Date.now(),
+      id: Date.now().toString(),
       scene: currentScene,
       shotNumber: (shots.filter(s => s.scene === currentScene).length + 1).toString(),
       description: '',
@@ -143,7 +201,7 @@ const ShotListManager = () => {
   const editShot = (id) => {
     const shotToEdit = shots.find(shot => shot.id === id);
     if (shotToEdit) {
-      setCurrentShot(shotToEdit);
+      setCurrentShot({ ...shotToEdit });
       setEditingShotId(id);
       setShowShotEditor(true);
       setSelectedScriptSegment(shotToEdit.scriptSegment || '');
@@ -151,10 +209,12 @@ const ShotListManager = () => {
   };
 
   const deleteShot = (id) => {
+    if (!storageReady) return;
     setShots(prev => prev.filter(shot => shot.id !== id));
   };
 
   const runAiShotSuggestions = async () => {
+    if (!storageReady) return;
     if (!script.trim()) return;
     
     setLoading(true);
@@ -583,7 +643,7 @@ const ShotListManager = () => {
               </div>
               
               <div className="form-actions">
-                <button className="button" onClick={addShot}>
+                <button className="button" onClick={addShot} disabled={!storageReady}>
                   {editingShotId ? 'Update Shot' : 'Add Shot'}
                 </button>
                 <button 

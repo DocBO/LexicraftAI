@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import { geminiService } from '../services/geminiAPI';
+import { storageService } from '../services/storageService';
+import { useProject } from '../context/ProjectContext';
 
 const modules = {
   toolbar: [
@@ -25,25 +27,77 @@ const getPlainText = (html) => {
 };
 
 const ManuscriptManager = () => {
+  const { activeProject } = useProject();
+  const storageEnabled = storageService.isBackendEnabled();
   const [chapters, setChapters] = useState([]);
   const [currentChapter, setCurrentChapter] = useState({ title: '', content: '', wordCount: 0 });
   const [analysis, setAnalysis] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [editingChapter, setEditingChapter] = useState(null);
+  const [storageReady, setStorageReady] = useState(!storageEnabled);
 
   useEffect(() => {
-    const savedChapters = localStorage.getItem('manuscript_chapters');
-    if (savedChapters) {
-      setChapters(JSON.parse(savedChapters));
+    let cancelled = false;
+
+    setStorageReady(!storageEnabled);
+
+    const loadChapters = async () => {
+      if (storageEnabled) {
+        try {
+          const response = await storageService.loadManuscript(activeProject);
+          if (!cancelled && response?.chapters) {
+            setChapters(response.chapters);
+          }
+        } catch (err) {
+          if (!cancelled) {
+            setError('Failed to load saved chapters: ' + err.message);
+          }
+        } finally {
+          if (!cancelled) {
+            setStorageReady(true);
+          }
+        }
+      } else {
+        const key = `manuscript_chapters_${activeProject}`;
+        const savedChapters = localStorage.getItem(key);
+        if (!cancelled && savedChapters) {
+          setChapters(JSON.parse(savedChapters));
+        }
+        if (!cancelled) {
+          setStorageReady(true);
+        }
+      }
+    };
+
+    loadChapters();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [storageEnabled, activeProject]);
+
+  const persistChapters = async (nextChapters) => {
+    setChapters(nextChapters);
+    if (storageEnabled) {
+      try {
+        const saved = await storageService.saveManuscript(nextChapters, activeProject);
+        if (saved?.chapters) {
+          setChapters(saved.chapters);
+          return saved.chapters;
+        }
+      } catch (err) {
+        setError('Failed to save chapters: ' + err.message);
+      }
+    } else {
+      const key = `manuscript_chapters_${activeProject}`;
+      localStorage.setItem(key, JSON.stringify(nextChapters));
     }
-  }, []);
+    return nextChapters;
+  };
 
-  useEffect(() => {
-    localStorage.setItem('manuscript_chapters', JSON.stringify(chapters));
-  }, [chapters]);
-
-  const addChapter = () => {
+  const addChapter = async () => {
+    if (!storageReady) return;
     const plainContent = getPlainText(currentChapter.content);
     if (!currentChapter.title.trim() || !plainContent.trim()) return;
 
@@ -56,21 +110,30 @@ const ManuscriptManager = () => {
       status: 'draft'
     };
 
-    setChapters(prev => [...prev, newChapter]);
+    const next = [...chapters, newChapter];
+    await persistChapters(next);
     setCurrentChapter({ title: '', content: '', wordCount: 0 });
   };
 
-  const updateChapter = (id, updatedChapter) => {
-    setChapters(prev => prev.map(chapter => 
+  const updateChapter = async (id, updatedChapter) => {
+    if (!storageReady) return;
+    const next = chapters.map(chapter => 
       chapter.id === id 
-        ? { ...chapter, ...updatedChapter, wordCount: getPlainText(updatedChapter.content).split(' ').filter(w => w).length }
+        ? { 
+            ...chapter, 
+            ...updatedChapter, 
+            wordCount: getPlainText(updatedChapter.content).split(' ').filter(w => w).length 
+          }
         : chapter
-    ));
+    );
+    await persistChapters(next);
     setEditingChapter(null);
   };
 
-  const deleteChapter = (id) => {
-    setChapters(prev => prev.filter(chapter => chapter.id !== id));
+  const deleteChapter = async (id) => {
+    if (!storageReady) return;
+    const next = chapters.filter(chapter => chapter.id !== id);
+    await persistChapters(next);
   };
 
   const analyzeManuscript = async () => {
@@ -154,7 +217,7 @@ const ManuscriptManager = () => {
           <span className="word-count">{currentChapter.wordCount} words</span>
           <button 
             onClick={addChapter}
-            disabled={!currentChapter.title.trim() || !getPlainText(currentChapter.content).trim()}
+            disabled={!storageReady || !currentChapter.title.trim() || !getPlainText(currentChapter.content).trim()}
             className="button"
           >
             Add Chapter
@@ -167,7 +230,7 @@ const ManuscriptManager = () => {
           <h3>Chapters ({chapters.length})</h3>
           <button 
             onClick={analyzeManuscript}
-            disabled={loading || chapters.length === 0}
+            disabled={loading || chapters.length === 0 || !storageReady}
             className="button secondary"
           >
             {loading ? 'Analyzing...' : 'Analyze Manuscript'}
@@ -276,8 +339,16 @@ const ManuscriptManager = () => {
   );
 };
 
-const ChapterDisplay = ({ chapter, index, onEdit, onDelete }) => (
-  <div className="chapter-display">
+const ChapterDisplay = ({ chapter, index, onEdit, onDelete }) => {
+  let createdDate = chapter.createdAt;
+  try {
+    createdDate = chapter.createdAt ? new Date(chapter.createdAt).toLocaleDateString() : '';
+  } catch (err) {
+    createdDate = chapter.createdAt || '';
+  }
+
+  return (
+    <div className="chapter-display">
     <div className="chapter-header">
       <h4>Chapter {index + 1}: {chapter.title}</h4>
       <div className="chapter-actions">
@@ -288,15 +359,16 @@ const ChapterDisplay = ({ chapter, index, onEdit, onDelete }) => (
     
     <div className="chapter-meta">
       <span className="word-count">{chapter.wordCount} words</span>
-      <span className="created-date">{chapter.createdAt}</span>
+      <span className="created-date">{createdDate}</span>
       <span className={`status ${chapter.status}`}>{chapter.status}</span>
     </div>
     
     <div className="chapter-preview">
       {getPlainText(chapter.content).substring(0, 200)}...
     </div>
-  </div>
-);
+    </div>
+  );
+};
 
 const ChapterEditor = ({ chapter, onSave, onCancel }) => {
   const [title, setTitle] = useState(chapter.title);

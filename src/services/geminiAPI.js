@@ -1,12 +1,45 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
+const BACKEND_BASE_URL = (process.env.REACT_APP_BACKEND_URL || '').replace(/\/$/, '');
+
 class GeminiService {
   constructor() {
     this.genAI = null;
+    this.backendBase = BACKEND_BASE_URL;
+    this.usingBackend = Boolean(this.backendBase);
   }
 
   setApiKey(apiKey) {
     this.genAI = new GoogleGenerativeAI(apiKey);
+  }
+
+  async requestBackend(path, payload) {
+    if (!this.backendBase) {
+      throw new Error('Backend URL not configured');
+    }
+
+    try {
+      const response = await fetch(`${this.backendBase}${path}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const contentType = response.headers.get('content-type') || '';
+      const isJson = contentType.includes('application/json');
+      const data = isJson ? await response.json() : null;
+
+      if (!response.ok) {
+        const detail = data?.detail || data?.error || response.statusText;
+        throw new Error(detail || 'Backend request failed');
+      }
+
+      return data ?? {};
+    } catch (error) {
+      throw new Error(error.message || 'Backend request failed');
+    }
   }
 
   // Helper function to clean and parse AI responses
@@ -28,12 +61,27 @@ class GeminiService {
   }
 
   // Enhanced paraphrasing with literary styles
-  async advancedParaphrase(text, options) {
+  async advancedParaphrase(text, options = {}) {
+    const {
+      mode = 'Literary',
+      writingStyle = 'neutral',
+      targetAudience = 'general',
+      preserveDialogue = true,
+    } = options;
+
+    if (this.usingBackend) {
+      return await this.requestBackend('/api/paraphrase/advanced', {
+        text,
+        mode,
+        writingStyle,
+        targetAudience,
+        preserveDialogue,
+      });
+    }
+
     if (!this.genAI) {
       throw new Error('API key not set');
     }
-
-    const { mode, writingStyle, targetAudience, preserveDialogue } = options;
     
     let prompt = `Transform the following text with these specifications:
     - Literary Mode: ${mode}
@@ -69,6 +117,10 @@ class GeminiService {
 
   // Advanced grammar and style checking
   async checkGrammarAdvanced(text, level) {
+    if (this.usingBackend) {
+      return await this.requestBackend('/api/grammar/check', { text, level });
+    }
+
     if (!this.genAI) {
       throw new Error('API key not set');
     }
@@ -137,6 +189,14 @@ class GeminiService {
 
   // Character analysis and development
   async analyzeCharacter(text, characterName, analysisType) {
+    if (this.usingBackend) {
+      return await this.requestBackend('/api/character/analyze', {
+        text,
+        characterName,
+        analysisType,
+      });
+    }
+
     if (!this.genAI) {
       throw new Error('API key not set');
     }
@@ -204,6 +264,14 @@ class GeminiService {
 
   // Generate character enhancement suggestions
   async generateCharacterSuggestions(characterName, traits, focusArea) {
+    if (this.usingBackend) {
+      return await this.requestBackend('/api/character/suggestions', {
+        characterName,
+        traits,
+        focusArea,
+      });
+    }
+
     if (!this.genAI) {
       throw new Error('API key not set');
     }
@@ -247,6 +315,10 @@ class GeminiService {
 
   // Plot structure analysis
   async analyzePlotStructure(text, plotType) {
+    if (this.usingBackend) {
+      return await this.requestBackend('/api/plot/analyze', { text, plotType });
+    }
+
     if (!this.genAI) {
       throw new Error('API key not set');
     }
@@ -336,6 +408,10 @@ class GeminiService {
 
   // NEW: Manuscript Manager
   async analyzeManuscript(chapters) {
+    if (this.usingBackend) {
+      return await this.requestBackend('/api/manuscript/analyze', { chapters });
+    }
+
     if (!this.genAI) {
       throw new Error('API key not set');
     }
@@ -387,6 +463,10 @@ class GeminiService {
 
   // NEW: Scene Builder
   async analyzeScene(sceneText, sceneType) {
+    if (this.usingBackend) {
+      return await this.requestBackend('/api/scene/analyze', { sceneText, sceneType });
+    }
+
     if (!this.genAI) {
       throw new Error('API key not set');
     }
@@ -448,6 +528,10 @@ class GeminiService {
 
   // NEW: Readability Optimizer
   async analyzeReadability(text, targetAudience) {
+    if (this.usingBackend) {
+      return await this.requestBackend('/api/readability/analyze', { text, targetAudience });
+    }
+
     if (!this.genAI) {
       throw new Error('API key not set');
     }
@@ -506,6 +590,10 @@ class GeminiService {
 
   // Existing methods with improved response handling...
   async paraphraseText(text, mode, customPrompt = '') {
+    if (this.usingBackend) {
+      return await this.requestBackend('/api/paraphrase', { text, mode, customPrompt });
+    }
+
     if (!this.genAI) {
       throw new Error('API key not set. Please configure your Gemini API key.');
     }
@@ -555,6 +643,10 @@ class GeminiService {
   }
 
   async summarizeText(text, length = 'medium') {
+    if (this.usingBackend) {
+      return await this.requestBackend('/api/summarize', { text, length });
+    }
+
     if (!this.genAI) {
       throw new Error('API key not set');
     }
@@ -590,6 +682,10 @@ class GeminiService {
   }
 
   async analyzeTone(text) {
+    if (this.usingBackend) {
+      return await this.requestBackend('/api/analyze-tone', { text });
+    }
+
     if (!this.genAI) {
       throw new Error('API key not set');
     }
@@ -627,6 +723,10 @@ class GeminiService {
   }
 
   async getSynonyms(word, context) {
+    if (this.usingBackend) {
+      return await this.requestBackend('/api/synonyms', { word, context });
+    }
+
     if (!this.genAI) {
       throw new Error('API key not set');
     }
@@ -651,6 +751,10 @@ class GeminiService {
   }
 
   async humanizeText(text) {
+    if (this.usingBackend) {
+      return await this.requestBackend('/api/humanize', { text });
+    }
+
     if (!this.genAI) {
       throw new Error('API key not set');
     }
@@ -671,6 +775,10 @@ class GeminiService {
 
   // Script Breakdown Analysis
   async analyzeScriptBreakdown(scriptText) {
+    if (this.usingBackend) {
+      return await this.requestBackend('/api/script/breakdown', { scriptText });
+    }
+
     if (!this.genAI) {
       throw new Error('API key not set');
     }
@@ -733,6 +841,10 @@ class GeminiService {
 
   // Generate Shot List
   async generateShotList(scriptText) {
+    if (this.usingBackend) {
+      return await this.requestBackend('/api/script/shots', { scriptText });
+    }
+
     if (!this.genAI) {
       throw new Error('API key not set');
     }

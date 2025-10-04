@@ -1,11 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import logo from '../img/lexicraft.png';
+import { useProject } from '../context/ProjectContext';
 
 const Navigation = () => {
   const location = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [theme, setTheme] = useState('lexicraft');
+  const [showProjectModal, setShowProjectModal] = useState(false);
+  const [newProjectName, setNewProjectName] = useState('');
+  const [projectError, setProjectError] = useState('');
+  const { projects, activeProject, setActiveProject, createProject, loading: projectsLoading } = useProject();
 
   const themes = [
     { value: 'lexicraft', label: 'Lexicraft (Default)' },
@@ -77,6 +82,20 @@ const Navigation = () => {
           <Link to="/" onClick={closeMobileMenu}>
             <img src={logo} alt="LexiconAI Logo" className="nav-logo" />
           </Link>
+          <div className="project-selector">
+            <label htmlFor="project-select">Project</label>
+            <select
+              id="project-select"
+              value={activeProject}
+              onChange={(e) => setActiveProject(e.target.value)}
+              disabled={projectsLoading}
+            >
+              {projects.map(project => (
+                <option key={project.id} value={project.id}>{project.name || project.id}</option>
+              ))}
+            </select>
+            <button className="add-project" onClick={() => { setProjectError(''); setShowProjectModal(true); }} title="Create new project">＋</button>
+          </div>
         </div>
         <ul className="nav-links">
           {navItems.map((item) => (
@@ -102,6 +121,41 @@ const Navigation = () => {
           </select>
         </div>
       </nav>
+
+      {showProjectModal && (
+        <div className="modal-overlay" onClick={() => { setShowProjectModal(false); setProjectError(''); }}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Create Project</h3>
+            <input
+              type="text"
+              value={newProjectName}
+              onChange={(e) => setNewProjectName(e.target.value)}
+              placeholder="Project name"
+              autoFocus
+            />
+            {projectError && <div className="error-message" style={{ marginTop: '0.5rem' }}>{projectError}</div>}
+            <div className="modal-actions">
+              <button
+                className="button"
+                onClick={async () => {
+                  if (!newProjectName.trim()) return;
+                  try {
+                    await createProject(newProjectName.trim());
+                    setNewProjectName('');
+                    setShowProjectModal(false);
+                    setProjectError('');
+                  } catch (err) {
+                    setProjectError(err.message);
+                  }
+                }}
+              >
+                Create
+              </button>
+              <button className="button secondary" onClick={() => { setShowProjectModal(false); setProjectError(''); }}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 };
