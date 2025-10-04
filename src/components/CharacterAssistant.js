@@ -14,7 +14,7 @@ const CharacterAssistant = () => {
   const { activeProject } = useProject();
   const storageEnabled = storageService.isBackendEnabled();
   const [characters, setCharacters] = useState([]);
-  const [selectedCharacterId, setSelectedCharacterId] = useState(null);
+  const [selectedCharacterId, setSelectedCharacterId] = useState('');
 
   const localKey = useMemo(() => `characters_${activeProject}`, [activeProject]);
 
@@ -27,7 +27,7 @@ const CharacterAssistant = () => {
           const list = await storageService.listCharacters(activeProject);
           if (!cancelled) {
             setCharacters(list || []);
-            setSelectedCharacterId(null);
+            setSelectedCharacterId('');
             setCharacterName('');
             setCharacterText('');
             setAnalysis(null);
@@ -42,7 +42,7 @@ const CharacterAssistant = () => {
           try {
             const parsed = JSON.parse(cached);
             setCharacters(Array.isArray(parsed) ? parsed : []);
-            setSelectedCharacterId(null);
+            setSelectedCharacterId('');
             setCharacterName('');
             setCharacterText('');
             setAnalysis(null);
@@ -134,7 +134,6 @@ const CharacterAssistant = () => {
       return;
     }
     const payload = {
-      id: selectedCharacterId,
       name: characterName,
       sourceText: characterText,
       analysis,
@@ -144,16 +143,24 @@ const CharacterAssistant = () => {
     try {
       let saved = payload;
       if (storageEnabled) {
-        saved = await storageService.saveCharacter(payload, activeProject);
+        const backendPayload = {
+          ...payload,
+          id: selectedCharacterId ? Number(selectedCharacterId) : undefined,
+        };
+        saved = await storageService.saveCharacter(backendPayload, activeProject);
       } else {
-        if (!payload.id) {
-          saved = { ...payload, id: Date.now() };
-        }
+        const localId = selectedCharacterId || Date.now().toString();
+        saved = { ...payload, id: localId };
       }
-      const withoutCurrent = characters.filter(ch => ch.id !== saved.id);
-      const next = [saved, ...withoutCurrent];
+      const withoutCurrent = characters.filter(ch => String(ch.id) !== String(saved.id));
+      const next = [{
+        ...saved,
+        id: saved.id,
+        analysis: saved.analysis,
+        suggestions: saved.suggestions,
+      }, ...withoutCurrent];
       persistCharacters(next);
-      setSelectedCharacterId(saved.id);
+      setSelectedCharacterId(String(saved.id));
       setError('');
     } catch (err) {
       setError('Failed to save character: ' + err.message);
@@ -165,10 +172,10 @@ const CharacterAssistant = () => {
       if (storageEnabled && id) {
         await storageService.deleteCharacter(id, activeProject);
       }
-      const next = characters.filter(ch => ch.id !== id);
+      const next = characters.filter(ch => String(ch.id) !== String(id));
       persistCharacters(next);
-      if (selectedCharacterId === id) {
-        setSelectedCharacterId(null);
+      if (String(selectedCharacterId) === String(id)) {
+        setSelectedCharacterId('');
         setCharacterName('');
         setCharacterText('');
         setAnalysis(null);
@@ -180,11 +187,19 @@ const CharacterAssistant = () => {
   };
 
   const loadCharacter = (character) => {
-    setSelectedCharacterId(character.id);
+    setSelectedCharacterId(String(character.id));
     setCharacterName(character.name || '');
     setCharacterText(character.sourceText || '');
     setAnalysis(character.analysis || null);
     setSuggestions(Array.isArray(character.suggestions) ? character.suggestions : null);
+  };
+
+  const resetCharacterForm = () => {
+    setSelectedCharacterId('');
+    setCharacterName('');
+    setCharacterText('');
+    setAnalysis(null);
+    setSuggestions(null);
   };
 
   return (
@@ -194,24 +209,44 @@ const CharacterAssistant = () => {
       <div className="character-saved-panel">
         <div className="saved-header">
           <h3>Saved Characters</h3>
-          <button className="button secondary" onClick={saveCharacterProfile} disabled={!characterName.trim()}>
-            Save Character
-          </button>
+          <div className="saved-controls">
+            <label htmlFor="character-select">Select</label>
+            <select
+              id="character-select"
+              value={selectedCharacterId}
+              onChange={(e) => {
+                const value = e.target.value;
+                if (!value) {
+                  resetCharacterForm();
+                  return;
+                }
+                const found = characters.find(ch => String(ch.id) === value);
+                if (found) loadCharacter(found);
+              }}
+            >
+              <option value="">New Character</option>
+              {characters.map(character => (
+                <option key={character.id} value={character.id}>{character.name}</option>
+              ))}
+            </select>
+            <div className="saved-actions">
+              <button className="button secondary" onClick={saveCharacterProfile} disabled={!characterName.trim()}>
+                Save
+              </button>
+              <button className="button secondary" onClick={resetCharacterForm}>
+                Clear
+              </button>
+              <button
+                className="button danger"
+                onClick={() => selectedCharacterId && deleteCharacterProfile(selectedCharacterId)}
+                disabled={!selectedCharacterId}
+              >
+                Delete
+              </button>
+            </div>
+          </div>
         </div>
-        {characters.length === 0 ? (
-          <p className="text-muted">No characters saved yet.</p>
-        ) : (
-          <ul className="saved-character-list">
-            {characters.map(character => (
-              <li key={character.id} className={character.id === selectedCharacterId ? 'active' : ''}>
-                <button onClick={() => loadCharacter(character)}>{character.name}</button>
-                <span className="actions">
-                  <button onClick={() => deleteCharacterProfile(character.id)} title="Delete">🗑</button>
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
+        {characters.length === 0 && <p className="text-muted">No characters saved yet.</p>}
       </div>
       
       <div className="character-controls">

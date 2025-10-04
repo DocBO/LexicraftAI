@@ -44,7 +44,7 @@ def ensure_workspace(session: Session, workspace_id: str) -> Workspace:
     return workspace
 
 
-@router.get("/", response_model=List[CharacterResponse])
+@router.get("", response_model=List[CharacterResponse])
 async def list_characters(
     workspace_id: str = Query(DEF_WORKSPACE, alias="workspaceId"),
     session: Session = Depends(get_session),
@@ -58,7 +58,7 @@ async def list_characters(
     return [profile_to_response(profile) for profile in profiles]
 
 
-@router.post("/", response_model=CharacterResponse)
+@router.post("", response_model=CharacterResponse)
 async def save_character(
     payload: CharacterPayload,
     workspace_id: str = Query(DEF_WORKSPACE, alias="workspaceId"),
