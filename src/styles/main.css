@@ -320,6 +320,19 @@ body {
   border: 1px solid var(--border-color);
 }
 
+.plot-controls {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-end;
+  margin-bottom: 1rem;
+}
+
+.plot-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
 .world-builder .world-fact-preview pre {
   background: var(--bg-primary);
   padding: 0.75rem;

@@ -6,31 +6,13 @@ import { storageService } from '../services/storageService';
 const PlotAnalyzer = () => {
   const [plotText, setPlotText] = useState('');
   const [analysis, setAnalysis] = useState(null);
+  const [chapterSuggestions, setChapterSuggestions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [status, setStatus] = useState('');
   const [plotType, setPlotType] = useState('three-act');
   const { activeProject } = useProject();
-  const storageEnabled = storageService.isBackendEnabled();
   const storageKey = useMemo(() => `plot_analysis_${activeProject}`, [activeProject]);
-
-  useEffect(() => {
-    if (storageEnabled) {
-      // Backend stores per project; nothing cached client side.
-      return;
-    }
-    try {
-      const cached = localStorage.getItem(storageKey);
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        setPlotText(parsed.plotText || '');
-        setAnalysis(parsed.analysis || null);
-        setPlotType(parsed.plotType || 'three-act');
-      }
-    } catch (err) {
-      console.warn('Failed to load cached plot analysis', err);
-    }
-  }, [storageEnabled, storageKey]);
 
   const plotStructures = [
     { value: 'three-act', label: 'Three-Act Structure' },
@@ -41,9 +23,31 @@ const PlotAnalyzer = () => {
     { value: 'custom', label: 'Custom Analysis' }
   ];
 
+  useEffect(() => {
+    try {
+      const cached = localStorage.getItem(storageKey);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        setPlotText(parsed.plotText || '');
+        setAnalysis(parsed.analysis || null);
+        setPlotType(parsed.plotType || 'three-act');
+        setChapterSuggestions(Array.isArray(parsed.chapterSuggestions) ? parsed.chapterSuggestions : []);
+      }
+    } catch (err) {
+      console.warn('Failed to load cached plot analysis', err);
+    }
+  }, [storageKey]);
+
+  useEffect(() => {
+    localStorage.setItem(
+      storageKey,
+      JSON.stringify({ plotText, plotType, analysis, chapterSuggestions })
+    );
+  }, [plotText, plotType, analysis, chapterSuggestions, storageKey]);
+
   const analyzePlot = async () => {
     if (!plotText.trim()) return;
-    
+
     setLoading(true);
     setError('');
     
@@ -52,18 +56,11 @@ const PlotAnalyzer = () => {
       if (response.success) {
         setAnalysis(response.analysis);
         if (Array.isArray(response.chapters) && response.chapters.length > 0) {
-          await persistChapters(response.chapters);
-          setStatus('Chapters synced to Manuscript Manager');
+          setChapterSuggestions(response.chapters);
+          setStatus('Plot analyzed – chapters ready to sync');
         } else {
+          setChapterSuggestions([]);
           setStatus('Plot analyzed');
-        }
-
-        if (!storageEnabled) {
-          localStorage.setItem(storageKey, JSON.stringify({
-            plotText,
-            analysis: response.analysis,
-            plotType,
-          }));
         }
       }
     } catch (error) {
@@ -74,29 +71,79 @@ const PlotAnalyzer = () => {
     }
   };
 
+  const loadExistingChapters = async () => {
+    if (storageService.isBackendEnabled()) {
+      const resp = await storageService.loadManuscript(activeProject);
+      return resp?.chapters || [];
+    }
+    const key = `manuscript_chapters_${activeProject}`;
+    const cached = localStorage.getItem(key);
+    if (!cached) return [];
+    try {
+      return JSON.parse(cached);
+    } catch (err) {
+      console.warn('Failed to parse cached manuscript chapters', err);
+      return [];
+    }
+  };
+
   const persistChapters = async (chapters) => {
-    const normalized = chapters.map(chapter => {
-      const safeTitle = chapter.title || 'Untitled Chapter';
+    const nowISO = new Date().toISOString();
+
+    const normalized = chapters.map((chapter, index) => {
+      const safeTitle = chapter.title || `Untitled Chapter ${index + 1}`;
       const safeSummary = chapter.summary || '';
-      const tags = Array.isArray(chapter.tags) ? chapter.tags.join(', ') : '';
-      const content = `${safeSummary}${tags ? `\n\nTags: ${tags}` : ''}`;
+      const tags = Array.isArray(chapter.tags) ? chapter.tags : [];
+      const htmlSummary = safeSummary
+        ? `<p>${safeSummary.replace(/\n/g, '<br/>')}</p>`
+        : '<p></p>';
+      const tagsLine = tags.length ? `<p><em>Tags: ${tags.join(', ')}</em></p>` : '';
+      const purposeLine = chapter.purpose ? `<p><strong>Purpose:</strong> ${chapter.purpose}</p>` : '';
+      const conflictLine = chapter.conflict ? `<p><strong>Conflict:</strong> ${chapter.conflict}</p>` : '';
+      const mergedContent = `${htmlSummary}${purposeLine}${conflictLine}${tagsLine}`;
 
       return {
-        id: Date.now() + Math.floor(Math.random() * 1000),
+        id: chapter.id || `plot-${Date.now()}-${index}`,
         title: safeTitle,
-        content,
-        wordCount: content.split(' ').filter(Boolean).length,
-        status: chapter.purpose ? chapter.purpose : 'outline',
-        createdAt: new Date().toISOString(),
+        content: mergedContent,
+        wordCount: safeSummary.split(' ').filter(Boolean).length,
+        status: chapter.purpose || 'outline',
+        createdAt: chapter.createdAt || nowISO,
       };
     });
 
     try {
-      const response = await storageService.saveManuscript(normalized, activeProject);
+      const existing = await loadExistingChapters();
+      const filteredExisting = existing.filter(existingChapter =>
+        !normalized.some(newChapter => newChapter.title === existingChapter.title)
+      );
+      const combined = [...normalized, ...filteredExisting];
+      const response = await storageService.saveManuscript(combined, activeProject);
+      if (!storageService.isBackendEnabled()) {
+        localStorage.setItem(
+          `manuscript_chapters_${activeProject}`,
+          JSON.stringify(combined)
+        );
+      } else if (response?.chapters) {
+        localStorage.setItem(
+          `manuscript_chapters_${activeProject}`,
+          JSON.stringify(response.chapters)
+        );
+      }
       return response;
     } catch (err) {
       setError('Failed to sync chapters: ' + err.message);
     }
+  };
+
+  const handleSyncChapters = async () => {
+    if (!chapterSuggestions.length) {
+      setStatus('No chapter suggestions to sync');
+      return;
+    }
+    await persistChapters(chapterSuggestions);
+    setStatus('Chapters synced to Manuscript Manager');
+    setChapterSuggestions([]);
   };
 
   const getStageColor = (completion) => {
@@ -125,6 +172,24 @@ const PlotAnalyzer = () => {
             ))}
           </select>
         </div>
+
+        <div className="plot-actions">
+          <button 
+            onClick={analyzePlot}
+            disabled={loading || !plotText.trim()}
+            className="button"
+          >
+            {loading ? 'Analyzing Plot...' : 'Analyze Plot'}
+          </button>
+          {chapterSuggestions.length > 0 && !loading && (
+            <button
+              onClick={handleSyncChapters}
+              className="button secondary"
+            >
+              Sync Chapters
+            </button>
+          )}
+        </div>
       </div>
 
       <textarea
@@ -134,14 +199,6 @@ const PlotAnalyzer = () => {
         className="text-area plot-textarea"
         style={{ height: '400px' }}
       />
-
-      <button 
-        onClick={analyzePlot}
-        disabled={loading || !plotText.trim()}
-        className="button"
-      >
-        {loading ? 'Analyzing Plot...' : 'Analyze Plot Structure'}
-      </button>
 
       {error && <div className="error-message">{error}</div>}
       {status && <div className="status-message">{status}</div>}
