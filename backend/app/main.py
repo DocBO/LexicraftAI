@@ -241,6 +241,25 @@ def create_app() -> FastAPI:
             analysis = default_plot_analysis()
 
         chapters = analysis.get("suggestedChapters")
+        if not isinstance(chapters, list) or not chapters:
+            stages = analysis.get("stages")
+            if isinstance(stages, list):
+                chapters = []
+                for index, stage in enumerate(stages):
+                    title = stage.get("name") or f"Chapter {index + 1}"
+                    description = stage.get("description") or ""
+                    suggestions = stage.get("suggestions")
+                    chapters.append(
+                        {
+                            "title": title,
+                            "summary": description,
+                            "purpose": ", ".join(suggestions) if isinstance(suggestions, list) else stage.get("purpose", "outline"),
+                            "conflict": stage.get("conflict"),
+                            "tags": stage.get("tags") if isinstance(stage.get("tags"), list) else [],
+                        }
+                    )
+        if not isinstance(chapters, list):
+            chapters = []
         return {"success": True, "analysis": analysis, "chapters": chapters}
 
     @app.post("/api/manuscript/analyze")
