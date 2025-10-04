@@ -336,6 +336,16 @@ body {
   align-items: center;
 }
 
+.result-header .close-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
 .character-saved-panel .saved-character-list {
   list-style: none;
   margin: 0.75rem 0 0;

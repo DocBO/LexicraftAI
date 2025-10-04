@@ -14,7 +14,7 @@ const MainEditor = () => {
   const [synonyms, setSynonyms] = useState([]);
   const [showSynonyms, setShowSynonyms] = useState(false);
   const [synonymPosition, setSynonymPosition] = useState({ x: 0, y: 0 });
-  const [results, setResults] = useState({});
+  const [results, setResults] = useState([]);
   const [loading, setLoading] = useState({});
   const [frozenWords, setFrozenWords] = useState(new Set());
   const [compareMode, setCompareMode] = useState(false);
@@ -107,6 +107,10 @@ const MainEditor = () => {
     setFrozenWords(newFrozenWords);
   };
 
+  const dismissResult = (key) => {
+    setResults(prev => prev.filter(entry => entry.key !== key));
+  };
+
   const getPlainText = (html) => {
     const tempDiv = document.createElement('div');
     tempDiv.innerHTML = html;
@@ -143,7 +147,7 @@ const MainEditor = () => {
         if (compareMode) {
           setCompareResults(prev => [...prev, { mode, result, original: text }]);
         } else {
-          setResults(prev => ({ ...prev, [mode]: result }));
+          setResults(prev => [{ key: mode, data: result }, ...prev.filter(entry => entry.key !== mode)]);
         }
       }
     } catch (error) {
@@ -154,6 +158,8 @@ const MainEditor = () => {
   };
 
   const handleSummarize = async (length = 'medium') => {
+    const targetLength = typeof length === 'string' ? length : 'medium';
+
     if (!apiKeySet && !usingBackend) {
       setShowApiModal(true);
       return;
@@ -165,9 +171,9 @@ const MainEditor = () => {
     setError('');
     
     try {
-      const response = await geminiService.summarizeText(text, length);
+      const response = await geminiService.summarizeText(text, targetLength);
       if (response.success) {
-        setResults(prev => ({ ...prev, summary: response.summary }));
+        setResults(prev => [{ key: 'summary', data: response.summary }, ...prev.filter(entry => entry.key !== 'summary')]);
       }
     } catch (error) {
       setError('Summarization failed: ' + error.message);
@@ -190,7 +196,7 @@ const MainEditor = () => {
     try {
       const response = await geminiService.analyzeTone(text);
       if (response.success) {
-        setResults(prev => ({ ...prev, toneAnalysis: response.analysis }));
+        setResults(prev => [{ key: 'toneAnalysis', data: response.analysis }, ...prev.filter(entry => entry.key !== 'toneAnalysis')]);
       }
     } catch (error) {
       setError('Tone analysis failed: ' + error.message);
@@ -213,7 +219,7 @@ const MainEditor = () => {
     try {
       const response = await geminiService.humanizeText(text);
       if (response.success) {
-        setResults(prev => ({ ...prev, humanized: response.result }));
+        setResults(prev => [{ key: 'humanized', data: response.result }, ...prev.filter(entry => entry.key !== 'humanized')]);
       }
     } catch (error) {
       setError('Humanization failed: ' + error.message);
@@ -368,23 +374,26 @@ const MainEditor = () => {
           </div>
         )}
 
-        {Object.entries(results).map(([key, value]) => (
+        {results.map(({ key, data }) => (
           <div key={key} className="result-item">
-            <h3>
-              {key.charAt(0).toUpperCase() + key.slice(1).replace('Analysis', ' Analysis')}
-            </h3>
-            {key === 'toneAnalysis' ? (
+            <div className="result-header">
+              <h3>
+                {key.charAt(0).toUpperCase() + key.slice(1).replace('Analysis', ' Analysis')}
+              </h3>
+              <button className="close-btn" onClick={() => dismissResult(key)} aria-label="Close result">×</button>
+            </div>
+            {key === 'toneAnalysis' && typeof data === 'object' ? (
               <div className="tone-results">
-                <p><strong>Overall Tone:</strong> {value.overallTone}</p>
-                <p><strong>Sentiment:</strong> {value.sentiment}</p>
-                <p><strong>Confidence:</strong> {value.confidence}</p>
-                {value.emotions?.length > 0 && (
-                  <p><strong>Emotions:</strong> {value.emotions.join(', ')}</p>
+                <p><strong>Overall Tone:</strong> {data.overallTone}</p>
+                <p><strong>Sentiment:</strong> {data.sentiment}</p>
+                <p><strong>Confidence:</strong> {data.confidence}</p>
+                {data.emotions?.length > 0 && (
+                  <p><strong>Emotions:</strong> {data.emotions.join(', ')}</p>
                 )}
-                <p><strong>Suggestions:</strong> {value.suggestions}</p>
+                <p><strong>Suggestions:</strong> {data.suggestions}</p>
               </div>
             ) : (
-              <p>{value}</p>
+              <p>{data}</p>
             )}
           </div>
         ))}
