@@ -68,11 +68,6 @@ class ShotListSaveRequest(BaseModel):
 def ensure_workspace(session: Session, workspace_id: str) -> Workspace:
     workspace = session.get(Workspace, workspace_id)
     if workspace:
-        if not workspace.name:
-            workspace.name = format_workspace_name(workspace_id)
-            session.add(workspace)
-            session.commit()
-            session.refresh(workspace)
         return workspace
     workspace = Workspace(id=workspace_id, name=format_workspace_name(workspace_id))
     session.add(workspace)

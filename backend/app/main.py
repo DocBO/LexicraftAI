@@ -239,7 +239,9 @@ def create_app() -> FastAPI:
         analysis = coerce_json(analysis_text)
         if analysis is None or not isinstance(analysis, dict):
             analysis = default_plot_analysis()
-        return {"success": True, "analysis": analysis}
+
+        chapters = analysis.get("suggestedChapters")
+        return {"success": True, "analysis": analysis, "chapters": chapters}
 
     @app.post("/api/manuscript/analyze")
     async def manuscript_analyze(payload: ManuscriptAnalysisRequest) -> Dict[str, Any]:
@@ -671,6 +673,20 @@ def default_plot_analysis() -> Dict[str, Any]:
                 "title": "General Development",
                 "description": "Continue refining your plot structure",
             }
+        ],
+        "suggestedChapters": [
+            {
+                "title": "Chapter 1: Opening",
+                "summary": "Introduce the world and main conflict.",
+                "purpose": "Hook the reader and establish stakes.",
+                "tags": ["setup"],
+            },
+            {
+                "title": "Chapter 2: Rising Action",
+                "summary": "Complications build for the protagonist.",
+                "purpose": "Escalate tension and deepen character arcs.",
+                "tags": ["rising-action"],
+            },
         ],
     }
 

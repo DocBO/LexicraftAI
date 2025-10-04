@@ -34,18 +34,19 @@ const Navigation = () => {
 
   const navItems = [
     { path: '/world-builder', label: 'World Builder', icon: '🌍' },
+    { path: '/character-assistant', label: 'Character Dev', icon: '👥' },
+    { path: '/plot-analyzer', label: 'Plot Structure', icon: '🧭' },
+    { path: '/manuscript-manager', label: 'Manuscript Manager', icon: '📖' },
     { path: '/', label: 'Writer\'s Flow', icon: '›' },
+    { path: '/scene-builder', label: 'Scene Builder', icon: '›' },
+    { path: '/shot-list-manager', label: 'Shot List', icon: '›' },
+    { path: '/script-breakdown', label: 'Script Breakdown', icon: '›' },
     { path: '/enhanced-paraphraser', label: 'Literary Paraphraser', icon: '›' },
     { path: '/grammar-checker', label: 'Grammar Pro', icon: '›' },
-    { path: '/character-assistant', label: 'Character Dev', icon: '›' },
-    { path: '/plot-analyzer', label: 'Plot Structure', icon: '›' },
-    { path: '/manuscript-manager', label: 'Manuscript Manager', icon: '›' },
-    { path: '/scene-builder', label: 'Scene Builder', icon: '›' },
     { path: '/readability-optimizer', label: 'Readability', icon: '›' },
-    { path: '/script-breakdown', label: 'Script Breakdown', icon: '›' },
-    { path: '/shot-list-manager', label: 'Shot List', icon: '›' },
     { path: '/summarizer', label: 'Summarizer', icon: '›' },
-    { path: '/tone-analyzer', label: 'Tone Analyzer', icon: '›' }
+    { path: '/tone-analyzer', label: 'Tone Analyzer', icon: '›' },
+    { path: '/paraphraser', label: 'Smart Paraphraser', icon: '›' }
   ];
 
   const toggleMobileMenu = () => {

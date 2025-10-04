@@ -1,12 +1,16 @@
 import React, { useState } from 'react';
 import { geminiService } from '../services/geminiAPI';
+import { useProject } from '../context/ProjectContext';
+import { storageService } from '../services/storageService';
 
 const PlotAnalyzer = () => {
   const [plotText, setPlotText] = useState('');
   const [analysis, setAnalysis] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [status, setStatus] = useState('');
   const [plotType, setPlotType] = useState('three-act');
+  const { activeProject } = useProject();
 
   const plotStructures = [
     { value: 'three-act', label: 'Three-Act Structure' },
@@ -27,11 +31,43 @@ const PlotAnalyzer = () => {
       const response = await geminiService.analyzePlotStructure(plotText, plotType);
       if (response.success) {
         setAnalysis(response.analysis);
+        if (Array.isArray(response.chapters) && response.chapters.length > 0) {
+          await persistChapters(response.chapters);
+          setStatus('Chapters synced to Manuscript Manager');
+        } else {
+          setStatus('Plot analyzed');
+        }
       }
     } catch (error) {
       setError('Failed to analyze plot: ' + error.message);
+      setStatus('');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const persistChapters = async (chapters) => {
+    const normalized = chapters.map(chapter => {
+      const safeTitle = chapter.title || 'Untitled Chapter';
+      const safeSummary = chapter.summary || '';
+      const tags = Array.isArray(chapter.tags) ? chapter.tags.join(', ') : '';
+      const content = `${safeSummary}${tags ? `\n\nTags: ${tags}` : ''}`;
+
+      return {
+        id: Date.now() + Math.floor(Math.random() * 1000),
+        title: safeTitle,
+        content,
+        wordCount: content.split(' ').filter(Boolean).length,
+        status: chapter.purpose ? chapter.purpose : 'outline',
+        createdAt: new Date().toISOString(),
+      };
+    });
+
+    try {
+      const response = await storageService.saveManuscript(normalized, activeProject);
+      return response;
+    } catch (err) {
+      setError('Failed to sync chapters: ' + err.message);
     }
   };
 
@@ -80,6 +116,7 @@ const PlotAnalyzer = () => {
       </button>
 
       {error && <div className="error-message">{error}</div>}
+      {status && <div className="status-message">{status}</div>}
 
       {analysis && (
         <div className="plot-analysis">
