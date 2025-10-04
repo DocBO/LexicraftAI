@@ -61,8 +61,7 @@ const WorldBuilder = () => {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [storageEnabled, activeProject]);
+  }, [storageEnabled, activeProject, storageKey]);
 
   const persistFacts = (nextFacts) => {
     setFacts(nextFacts);
