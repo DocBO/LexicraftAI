@@ -24,6 +24,9 @@ const request = async (path, options = {}) => {
     try {
       const data = await response.json();
       detail = data?.detail || data?.error || detail;
+      if (typeof detail === 'object') {
+        detail = JSON.stringify(detail);
+      }
     } catch (err) {
       // ignore json parse errors
     }

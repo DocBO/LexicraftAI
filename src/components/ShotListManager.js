@@ -105,8 +105,44 @@ const ShotListManager = () => {
     }
 
     const timeout = setTimeout(() => {
+      const normalizedShots = shots.map(shot => {
+        let selection = shot.scriptSelection && typeof shot.scriptSelection === 'object'
+          ? {
+              start: typeof shot.scriptSelection.start === 'number' && Number.isFinite(shot.scriptSelection.start)
+                ? shot.scriptSelection.start
+                : null,
+              end: typeof shot.scriptSelection.end === 'number' && Number.isFinite(shot.scriptSelection.end)
+                ? shot.scriptSelection.end
+                : null,
+            }
+          : undefined;
+
+        if (selection && selection.start === null && selection.end === null) {
+          selection = undefined;
+        }
+
+        return {
+          ...shot,
+          id: String(shot.id ?? Date.now()),
+          scene: shot.scene ?? '',
+          shotNumber: shot.shotNumber ?? '',
+          description: shot.description ?? '',
+          type: shot.type ?? '',
+          angle: shot.angle ?? '',
+          movement: shot.movement ?? '',
+          equipment: shot.equipment ?? '',
+          lens: shot.lens ?? '',
+          framing: shot.framing ?? '',
+          notes: shot.notes ?? '',
+          duration: shot.duration ?? '',
+          frameRate: shot.frameRate ?? '',
+          scriptSegment: shot.scriptSegment ?? '',
+          scriptSelection: selection,
+        };
+      });
+
       storageService
-        .saveShotList({ script, shots }, activeProject)
+        .saveShotList({ script, shots: normalizedShots }, activeProject)
         .catch((err) => setError('Failed to save shot list: ' + err.message));
     }, 600);
 
@@ -235,7 +271,10 @@ const ShotListManager = () => {
             id: shot.id || Date.now() + Math.floor(Math.random() * 10000)
           }));
           
-          setShots(prev => [...prev, ...processedShots]);
+          setShots(prev => [...prev, ...processedShots.map(shot => ({
+            ...shot,
+            id: String(shot.id ?? Date.now())
+          }))]);
           setActiveTab('shot-list');
         }
       } else {
