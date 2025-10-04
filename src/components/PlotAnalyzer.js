@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { geminiService } from '../services/geminiAPI';
 import { useProject } from '../context/ProjectContext';
 import { storageService } from '../services/storageService';
@@ -11,6 +11,26 @@ const PlotAnalyzer = () => {
   const [status, setStatus] = useState('');
   const [plotType, setPlotType] = useState('three-act');
   const { activeProject } = useProject();
+  const storageEnabled = storageService.isBackendEnabled();
+  const storageKey = useMemo(() => `plot_analysis_${activeProject}`, [activeProject]);
+
+  useEffect(() => {
+    if (storageEnabled) {
+      // Backend stores per project; nothing cached client side.
+      return;
+    }
+    try {
+      const cached = localStorage.getItem(storageKey);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        setPlotText(parsed.plotText || '');
+        setAnalysis(parsed.analysis || null);
+        setPlotType(parsed.plotType || 'three-act');
+      }
+    } catch (err) {
+      console.warn('Failed to load cached plot analysis', err);
+    }
+  }, [storageEnabled, storageKey]);
 
   const plotStructures = [
     { value: 'three-act', label: 'Three-Act Structure' },
@@ -36,6 +56,14 @@ const PlotAnalyzer = () => {
           setStatus('Chapters synced to Manuscript Manager');
         } else {
           setStatus('Plot analyzed');
+        }
+
+        if (!storageEnabled) {
+          localStorage.setItem(storageKey, JSON.stringify({
+            plotText,
+            analysis: response.analysis,
+            plotType,
+          }));
         }
       }
     } catch (error) {
