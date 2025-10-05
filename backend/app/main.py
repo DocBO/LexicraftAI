@@ -575,7 +575,7 @@ def build_plot_prompt(payload: PlotAnalysisRequest) -> str:
         "    \"structureSummary\": \"one paragraph overview\",\n"
         "    \"stages\": [\n"
         "      {\n"
-        "        \"name\": \"Act I – Setup\",\n"
+        "        \"name\": \"according to the analysis structure...\",\n"
         "        \"focus\": \"what this stage accomplishes\",\n"
         "        \"progressPercent\": 25,\n"
         "        \"keyBeats\": [\"inciting incident\", \"turning point\"],\n"

@@ -345,7 +345,7 @@ const PlotAnalyzer = () => {
           </div>
 
           <div className="plot-stages">
-            <h4>Story Stages:</h4>
+            <h4>Story Stages</h4>
             {analysis.stages?.map((stage, index) => {
               const progress = typeof stage.progressPercent === 'number'
                 ? stage.progressPercent
@@ -353,45 +353,66 @@ const PlotAnalyzer = () => {
                 ? stage.completion
                 : 0;
               const notes = stage.notes || stage.description || '';
-              const suggestions = Array.isArray(stage.suggestions) && stage.suggestions.length
-                ? stage.suggestions
-                : Array.isArray(stage.keyBeats)
-                ? stage.keyBeats
-                : [];
 
               return (
                 <div key={index} className="stage-item">
-                  <div className="stage-header">
-                    <span className="stage-name">{stage.name}</span>
-                    <span 
-                      className="stage-completion"
-                      style={{ color: getStageColor(progress) }}
+                  <header className="stage-header">
+                    <div className="stage-title">
+                      <span className="stage-step">Step {index + 1}</span>
+                      <h5>{stage.name || `Stage ${index + 1}`}</h5>
+                    </div>
+                    <span
+                      className="stage-progress-pill"
+                      style={{ borderColor: getStageColor(progress), color: getStageColor(progress) }}
                     >
-                      {progress}% Complete
+                      {progress}%
                     </span>
-                  </div>
+                  </header>
 
                   <div className="stage-progress">
-                    <div 
+                    <div
                       className="progress-bar"
-                      style={{ 
+                      style={{
                         width: `${progress}%`,
                         backgroundColor: getStageColor(progress)
                       }}
                     ></div>
                   </div>
 
-                  {stage.focus && <p className="stage-focus"><strong>Focus:</strong> {stage.focus}</p>}
-                  {notes && <p className="stage-description">{notes}</p>}
+                  {stage.focus && (
+                    <p className="stage-focus">
+                      <strong>Focus:</strong> {stage.focus}
+                    </p>
+                  )}
 
-                  {suggestions.length > 0 && (
-                    <div className="stage-suggestions">
-                      <strong>{stage.suggestions ? 'Suggestions' : 'Key Beats'}:</strong>
+                  {notes && <p className="stage-notes">{notes}</p>}
+
+
+                  {Array.isArray(stage.keyBeats) && stage.keyBeats.length > 0 && (
+                    <div className="stage-list">
+                      <strong>Key Beats</strong>
                       <ul>
-                        {suggestions.map((suggestion, idx) => (
-                          <li key={idx}>{suggestion}</li>
+                        {stage.keyBeats.map((beat, beatIndex) => (
+                          <li key={beatIndex}>{beat}</li>
                         ))}
                       </ul>
+                    </div>
+                  )}
+
+                  {Array.isArray(stage.suggestions) && stage.suggestions.length > 0 && (
+                    <div className="stage-list">
+                      <strong>Opportunities</strong>
+                      <ul>
+                        {stage.suggestions.map((suggestion, suggestionIndex) => (
+                          <li key={suggestionIndex}>{suggestion}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {stage.transition && (
+                    <div className="stage-transition">
+                      <strong>Transition:</strong> {stage.transition}
                     </div>
                   )}
                 </div>

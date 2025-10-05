@@ -1906,6 +1906,108 @@ body {
   line-height: 1.5;
 }
 
+.plot-stages {
+  margin-top: 2rem;
+  display: grid;
+  gap: 1.5rem;
+}
+
+.stage-item {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 1.25rem;
+  background: var(--bg-primary);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.stage-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.stage-title {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.stage-step {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent-secondary);
+}
+
+.stage-title h5 {
+  margin: 0;
+  font-size: 1.05rem;
+  color: var(--text-primary);
+}
+
+.stage-progress-pill {
+  border: 2px solid var(--accent-primary);
+  border-radius: 999px;
+  padding: 0.35rem 0.8rem;
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.stage-progress {
+  height: 6px;
+  background: var(--bg-secondary);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.stage-progress .progress-bar {
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+.stage-focus,
+.stage-notes,
+.stage-transition {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.stage-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.stage-list strong {
+  color: var(--text-primary);
+  font-size: 0.95rem;
+}
+
+.stage-list ul {
+  margin: 0;
+  padding-left: 1.2rem;
+  color: var(--text-secondary);
+  display: grid;
+  gap: 0.35rem;
+  list-style: disc;
+}
+
+@media (max-width: 768px) {
+  .stage-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .stage-progress-pill {
+    align-self: flex-start;
+  }
+}
+
 .score-circle {
   display: flex;
   flex-direction: column;
