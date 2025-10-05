@@ -32,8 +32,11 @@ const ManuscriptManager = () => {
   const [chapters, setChapters] = useState([]);
   const [currentChapter, setCurrentChapter] = useState({ title: '', content: '', wordCount: 0 });
   const [analysis, setAnalysis] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [factExtractionLoading, setFactExtractionLoading] = useState(false);
+  const [consistencyLoading, setConsistencyLoading] = useState(false);
   const [error, setError] = useState('');
+  const [status, setStatus] = useState('');
   const [editingChapter, setEditingChapter] = useState(null);
   const [storageReady, setStorageReady] = useState(!storageEnabled);
 
@@ -139,7 +142,7 @@ const ManuscriptManager = () => {
   const analyzeManuscript = async () => {
     if (chapters.length === 0) return;
 
-    setLoading(true);
+    setAnalysisLoading(true);
     setError('');
 
     try {
@@ -156,17 +159,25 @@ const ManuscriptManager = () => {
     } catch (error) {
       setError('Failed to analyze manuscript: ' + error.message);
     } finally {
-      setLoading(false);
+      setAnalysisLoading(false);
     }
   };
 
   const extractWorldFacts = async () => {
+    setStatus('');
+    setError('');
+
+    if (factExtractionLoading || consistencyLoading || analysisLoading) {
+      return;
+    }
+
     if (!storageReady || chapters.length === 0) {
       setError('No chapters available to extract facts.');
       return;
     }
 
     try {
+      setFactExtractionLoading(true);
       const facts = chapters.flatMap(chapter => {
         const text = getPlainText(chapter.content);
         const sentences = text.split(/(?<=[\.\!\?])\s+/);
@@ -194,13 +205,19 @@ const ManuscriptManager = () => {
       setStatus(`${facts.length} world facts extracted and saved.`);
     } catch (err) {
       setError('Failed to extract world facts: ' + err.message);
+    } finally {
+      setFactExtractionLoading(false);
     }
   };
 
   const checkWorldConsistency = async () => {
-    setLoading(true);
+    if (consistencyLoading || factExtractionLoading || analysisLoading) {
+      return;
+    }
+
     setError('');
     setStatus('');
+    setConsistencyLoading(true);
 
     try {
       const facts = await storageService.listWorldFacts(activeProject);
@@ -236,7 +253,7 @@ const ManuscriptManager = () => {
     } catch (err) {
       setError('Failed to check world consistency: ' + err.message);
     } finally {
-      setLoading(false);
+      setConsistencyLoading(false);
     }
   };
 
@@ -311,24 +328,24 @@ const ManuscriptManager = () => {
           <div className="manuscript-actions">
             <button 
               onClick={analyzeManuscript}
-              disabled={loading || chapters.length === 0 || !storageReady}
+              disabled={analysisLoading || chapters.length === 0 || !storageReady || factExtractionLoading || consistencyLoading}
               className="button secondary"
             >
-              {loading ? 'Analyzing...' : 'Analyze Manuscript'}
+              {analysisLoading ? 'Analyzing...' : 'Analyze Manuscript'}
             </button>
             <button
               onClick={extractWorldFacts}
-              disabled={!storageReady || chapters.length === 0}
+              disabled={!storageReady || chapters.length === 0 || factExtractionLoading || consistencyLoading || analysisLoading}
               className="button secondary"
             >
-              Extract World Facts
+              {factExtractionLoading ? 'Extracting Facts...' : 'Extract World Facts'}
             </button>
             <button
               onClick={checkWorldConsistency}
-              disabled={loading}
+              disabled={consistencyLoading || factExtractionLoading || analysisLoading}
               className="button secondary"
             >
-              Check World Consistency
+              {consistencyLoading ? 'Checking Consistency...' : 'Check World Consistency'}
             </button>
           </div>
         </div>
@@ -352,6 +369,8 @@ const ManuscriptManager = () => {
           </div>
         ))}
       </div>
+
+      {status && <div className="status-message">{status}</div>}
 
       {error && <div className="error-message">{error}</div>}
 
