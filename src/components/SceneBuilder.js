@@ -26,6 +26,8 @@ const defaultScene = (index = 0, overrides = {}) => ({
 const defaultChapterMetadata = () => ({
   mainCharacters: [],
   supportingCharacters: [],
+  hooks: [],
+  beats: [],
 });
 
 const createDefaultStore = () => {
@@ -69,10 +71,18 @@ const normalizeChapterMetadata = (metadata) => {
     return defaultChapterMetadata();
   }
 
-  return {
+  const normalized = {
     mainCharacters: normalizeList(metadata.mainCharacters),
     supportingCharacters: normalizeList(metadata.supportingCharacters),
+    hooks: Array.isArray(metadata.hooks) ? metadata.hooks : [],
+    beats: Array.isArray(metadata.beats) ? metadata.beats : [],
   };
+
+  if (typeof metadata.number === 'number') {
+    normalized.number = metadata.number;
+  }
+
+  return normalized;
 };
 
 const SceneBuilder = () => {

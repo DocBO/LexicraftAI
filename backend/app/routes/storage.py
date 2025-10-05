@@ -404,11 +404,21 @@ def normalize_character_list(raw) -> list[dict]:
 
 def normalize_chapter_metadata(raw) -> dict:
     if not raw or not isinstance(raw, dict):
-        return {"mainCharacters": [], "supportingCharacters": []}
-    return {
+        return {
+            "mainCharacters": [],
+            "supportingCharacters": [],
+            "hooks": [],
+            "beats": [],
+        }
+    normalized = {
         "mainCharacters": normalize_character_list(raw.get("mainCharacters")),
         "supportingCharacters": normalize_character_list(raw.get("supportingCharacters")),
+        "hooks": raw.get("hooks") if isinstance(raw.get("hooks"), list) else [],
+        "beats": raw.get("beats") if isinstance(raw.get("beats"), list) else [],
     }
+    if isinstance(raw.get("number"), int):
+        normalized["number"] = raw["number"]
+    return normalized
 
 
 def serialize_chapter_metadata(metadata: dict | None) -> str:

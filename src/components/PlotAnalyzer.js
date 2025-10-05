@@ -24,6 +24,47 @@ const InsightCard = ({ label, value, accent }) => {
   );
 };
 
+const normalizeCharacterList = (characters) => {
+  if (!Array.isArray(characters)) return [];
+  return characters
+    .map(character => {
+      if (!character) return null;
+      if (typeof character === 'string') {
+        const trimmed = character.trim();
+        return trimmed ? { name: trimmed, description: '' } : null;
+      }
+      const name = String(character.name || '').trim();
+      if (!name) return null;
+      return {
+        name,
+        description: String(character.description || '').trim(),
+      };
+    })
+    .filter(Boolean);
+};
+
+const normalizeChapterMetadata = (metadata) => {
+  if (!metadata || typeof metadata !== 'object') {
+    return { mainCharacters: [], supportingCharacters: [] };
+  }
+  return {
+    mainCharacters: normalizeCharacterList(metadata.mainCharacters),
+    supportingCharacters: normalizeCharacterList(metadata.supportingCharacters),
+    hooks: Array.isArray(metadata.hooks) ? metadata.hooks : [],
+  };
+};
+
+const formatCharacterNames = (characters = []) =>
+  Array.isArray(characters) && characters.length
+    ? characters.map(character => character.name).join(', ')
+    : '';
+
+const mapChapterSuggestion = (chapter, index) => ({
+  ...chapter,
+  metadata: normalizeChapterMetadata(chapter.metadata),
+  id: chapter.id || `chapter-suggestion-${index}`,
+});
+
 const PlotAnalyzer = () => {
   const [plotText, setPlotText] = useState('');
   const [analysis, setAnalysis] = useState(null);
@@ -144,7 +185,7 @@ const PlotAnalyzer = () => {
         setResponsePreview(response.responsePreview || '');
         setAppliedDirectives(response.directives || (actionPrompt.trim() ? actionPrompt : ''));
         if (Array.isArray(response.chapters) && response.chapters.length > 0) {
-          setChapterSuggestions(response.chapters);
+          setChapterSuggestions(response.chapters.map((chapter, index) => mapChapterSuggestion(chapter, index)));
           setStatus('Plot analyzed – chapters ready to sync');
         } else {
           setChapterSuggestions([]);
@@ -162,14 +203,24 @@ const PlotAnalyzer = () => {
   const loadExistingChapters = async () => {
     if (storageService.isBackendEnabled()) {
       const resp = await storageService.loadManuscript(activeProject);
-      return (resp?.chapters || []).map(chapter => ({ outline: '', ...chapter }));
+      return (resp?.chapters || []).map(chapter => ({
+        outline: '',
+        ...chapter,
+        metadata: normalizeChapterMetadata(chapter.metadata),
+      }));
     }
     const key = `manuscript_chapters_${activeProject}`;
     const cached = localStorage.getItem(key);
     if (!cached) return [];
     try {
       const parsed = JSON.parse(cached);
-      return Array.isArray(parsed) ? parsed.map(chapter => ({ outline: '', ...chapter })) : [];
+      return Array.isArray(parsed)
+        ? parsed.map(chapter => ({
+            outline: '',
+            ...chapter,
+            metadata: normalizeChapterMetadata(chapter.metadata),
+          }))
+        : [];
     } catch (err) {
       console.warn('Failed to parse cached manuscript chapters', err);
       return [];
@@ -188,6 +239,9 @@ const PlotAnalyzer = () => {
         : Array.isArray(chapter.metadata?.hooks)
         ? chapter.metadata.hooks
         : [];
+      const metadata = normalizeChapterMetadata(chapter.metadata);
+      const mainNames = formatCharacterNames(metadata.mainCharacters);
+      const supportingNames = formatCharacterNames(metadata.supportingCharacters);
 
       const outlineParts = [
         safeSummary && `Summary: ${safeSummary}`,
@@ -195,6 +249,8 @@ const PlotAnalyzer = () => {
         chapter.conflict && `Conflict: ${chapter.conflict}`,
         hooks.length ? `Hooks: ${hooks.join(', ')}` : '',
         tags.length ? `Tags: ${tags.join(', ')}` : '',
+        mainNames && `Main Characters: ${mainNames}`,
+        supportingNames && `Supporting Characters: ${supportingNames}`,
         promptText.trim() ? `Sync Prompt: ${promptText.trim()}` : '',
       ].filter(Boolean);
 
@@ -208,6 +264,7 @@ const PlotAnalyzer = () => {
         wordCount: 0,
         status: chapter.purpose || 'outline',
         createdAt: chapter.createdAt || nowISO,
+        metadata,
       };
     });
 
@@ -380,6 +437,16 @@ const PlotAnalyzer = () => {
                   )}
                   {Array.isArray(chapter.metadata?.hooks) && chapter.metadata.hooks.length > 0 && (
                     <li><strong>Hooks:</strong> {chapter.metadata.hooks.join(', ')}</li>
+                  )}
+                  {chapter.metadata?.mainCharacters?.length > 0 && (
+                    <li>
+                      <strong>Main Characters:</strong> {chapter.metadata.mainCharacters.map(character => character.name).join(', ')}
+                    </li>
+                  )}
+                  {chapter.metadata?.supportingCharacters?.length > 0 && (
+                    <li>
+                      <strong>Supporting Characters:</strong> {chapter.metadata.supportingCharacters.map(character => character.name).join(', ')}
+                    </li>
                   )}
                 </ul>
               </div>

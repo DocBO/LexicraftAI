@@ -365,13 +365,42 @@ def create_app() -> FastAPI:
                     tags = hooks
             if not isinstance(tags, list):
                 tags = []
+
+            raw_metadata = entry.get("metadata") if isinstance(entry.get("metadata"), dict) else {}
+
             metadata: Dict[str, Any] = {}
-            if isinstance(entry.get("hooks"), list):
-                metadata["hooks"] = entry["hooks"]
-            if isinstance(entry.get("beats"), list):
-                metadata["beats"] = entry["beats"]
+            hooks_value = entry.get("hooks")
+            if not isinstance(hooks_value, list):
+                hooks_value = raw_metadata.get("hooks")
+            if isinstance(hooks_value, list):
+                metadata["hooks"] = hooks_value
+
+            beats_value = entry.get("beats")
+            if not isinstance(beats_value, list):
+                beats_value = raw_metadata.get("beats")
+            if isinstance(beats_value, list):
+                metadata["beats"] = beats_value
+
             if entry.get("number") is not None:
                 metadata["number"] = entry["number"]
+
+            characters_block = entry.get("characters") if isinstance(entry.get("characters"), dict) else {}
+            main_characters = normalize_character_list(
+                raw_metadata.get("mainCharacters")
+                or entry.get("mainCharacters")
+                or characters_block.get("main")
+                or characters_block.get("primary")
+            )
+            supporting_characters = normalize_character_list(
+                raw_metadata.get("supportingCharacters")
+                or entry.get("supportingCharacters")
+                or characters_block.get("supporting")
+                or characters_block.get("secondary")
+            )
+
+            metadata["mainCharacters"] = main_characters
+            metadata["supportingCharacters"] = supporting_characters
+
             normalized_chapters.append(
                 {
                     "title": title,
@@ -379,7 +408,7 @@ def create_app() -> FastAPI:
                     "purpose": purpose,
                     "conflict": conflict,
                     "tags": tags,
-                    **({"metadata": metadata} if metadata else {}),
+                    "metadata": metadata,
                 }
             )
 
@@ -666,8 +695,8 @@ def build_plot_prompt(payload: PlotAnalysisRequest) -> str:
         f"{chapter_goal}\n\n"
         "Deliver:\n"
         "1. A structure analysis highlighting acts/stages, turning points, pacing, conflict, character arcs, themes, and actionable recommendations.\n"
-        "2. A chapter layout that distributes the story across the requested or default chapter count, noting purpose, primary conflict/tension, and hooks.\n"
-        "   Chapters must extend beyond simple act summaries and provide granular guidance for drafting scenes.\n\n"
+        "2. A chapter layout that distributes the story across the requested or default chapter count, noting purpose, primary conflict/tension, hooks, and character focus.\n"
+        "   Each chapter MUST include a metadata block identifying main and supporting characters (name plus a short descriptor) to avoid introducing new characters later.\n\n"
         "Respond with ONLY a valid JSON object (no markdown formatting) in this exact format:\n"
         "{\n"
         "  \"analysis\": {\n"
@@ -703,7 +732,16 @@ def build_plot_prompt(payload: PlotAnalysisRequest) -> str:
         "      \"purpose\": \"narrative purpose\",\n"
         "      \"conflict\": \"primary tension\",\n"
         "      \"hooks\": [\"hook1\"],\n"
-        "      \"tags\": [\"setup\", \"character\"]\n"
+        "      \"tags\": [\"setup\", \"character\"],\n"
+        "      \"metadata\": {\n"
+        "        \"mainCharacters\": [\n"
+        "          { \"name\": \"Protagonist Name\", \"description\": \"role or arc focus\" }\n"
+        "        ],\n"
+        "        \"supportingCharacters\": [\n"
+        "          { \"name\": \"Supporting Name\", \"description\": \"role\" }\n"
+        "        ],\n"
+        "        \"hooks\": [\"cliffhanger or promise\"]\n"
+        "      }\n"
         "    }\n"
         "  ]\n"
         "}"
@@ -1570,3 +1608,39 @@ def build_character_brief(main: List[CharacterInfo], supporting: List[CharacterI
     parts = [render("Main Characters", main), render("Supporting Characters", supporting)]
     joined = "\n\n".join(part for part in parts if part)
     return f"Character Roster:\n{joined}\n\n" if joined else ""
+
+
+def normalize_character_entry(entry: Any) -> Optional[Dict[str, str]]:
+    if not entry:
+        return None
+    if isinstance(entry, dict):
+        name = str(entry.get("name", "")).strip()
+        if not name:
+            return None
+        description = str(entry.get("description", "")).strip()
+        return {"name": name, "description": description}
+    if isinstance(entry, str):
+        name = entry.strip()
+        if not name:
+            return None
+        return {"name": name, "description": ""}
+    return None
+
+
+def normalize_character_list(raw: Any) -> List[Dict[str, str]]:
+    characters: List[Dict[str, str]] = []
+    if isinstance(raw, list):
+        for entry in raw:
+            normalized = normalize_character_entry(entry)
+            if normalized:
+                characters.append(normalized)
+    elif isinstance(raw, dict):
+        for entry in raw.values():
+            normalized = normalize_character_entry(entry)
+            if normalized:
+                characters.append(normalized)
+    else:
+        normalized = normalize_character_entry(raw)
+        if normalized:
+            characters.append(normalized)
+    return characters
