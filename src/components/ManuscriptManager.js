@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import { geminiService } from '../services/geminiAPI';
 import { storageService } from '../services/storageService';
 import { useProject } from '../context/ProjectContext';
+import { useNavigate } from 'react-router-dom';
 
 const modules = {
   toolbar: [
@@ -28,6 +29,7 @@ const getPlainText = (html) => {
 
 const ManuscriptManager = () => {
   const { activeProject } = useProject();
+  const navigate = useNavigate();
   const storageEnabled = storageService.isBackendEnabled();
   const [chapters, setChapters] = useState([]);
   const [currentChapter, setCurrentChapter] = useState({ title: '', outline: '', content: '', wordCount: 0 });
@@ -40,6 +42,8 @@ const ManuscriptManager = () => {
   const [editingChapter, setEditingChapter] = useState(null);
   const [storageReady, setStorageReady] = useState(!storageEnabled);
 
+  const sceneSeedKey = useMemo(() => `scene_builder_seed_${activeProject}`, [activeProject]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -51,7 +55,7 @@ const ManuscriptManager = () => {
           const response = await storageService.loadManuscript(activeProject);
           if (!cancelled && response?.chapters) {
             const normalized = response.chapters.map(chapter => ({
-              outline: '',
+              outline: chapter.outline || '',
               ...chapter,
             }));
             setChapters(normalized);
@@ -71,7 +75,7 @@ const ManuscriptManager = () => {
         if (!cancelled && savedChapters) {
           const parsed = JSON.parse(savedChapters);
           const normalized = Array.isArray(parsed)
-            ? parsed.map(chapter => ({ outline: '', ...chapter }))
+            ? parsed.map(chapter => ({ outline: chapter.outline || '', ...chapter }))
             : [];
           setChapters(normalized);
         }
@@ -94,7 +98,7 @@ const ManuscriptManager = () => {
       try {
         const saved = await storageService.saveManuscript(nextChapters, activeProject);
         if (saved?.chapters) {
-          const normalized = saved.chapters.map(chapter => ({ outline: '', ...chapter }));
+          const normalized = saved.chapters.map(chapter => ({ outline: chapter.outline || '', ...chapter }));
           setChapters(normalized);
           return normalized;
         }
@@ -106,6 +110,25 @@ const ManuscriptManager = () => {
       localStorage.setItem(key, JSON.stringify(nextChapters));
     }
     return nextChapters;
+  };
+
+  const openInSceneBuilder = (chapter) => {
+    const seed = {
+      title: chapter.title,
+      outline: chapter.outline || '',
+      content: getPlainText(chapter.content),
+      status: chapter.status,
+      chapterId: chapter.id,
+      timestamp: new Date().toISOString(),
+    };
+
+    try {
+      localStorage.setItem(sceneSeedKey, JSON.stringify(seed));
+    } catch (err) {
+      console.warn('Failed to cache scene seed', err);
+    }
+
+    navigate('/scene-builder');
   };
 
   const addChapter = async () => {
@@ -402,6 +425,7 @@ const ManuscriptManager = () => {
                 index={index}
                 onEdit={() => setEditingChapter(chapter.id)}
                 onDelete={() => deleteChapter(chapter.id)}
+                onDevelopScenes={() => openInSceneBuilder(chapter)}
               />
             )}
           </div>
@@ -492,7 +516,7 @@ const ManuscriptManager = () => {
   );
 };
 
-const ChapterDisplay = ({ chapter, index, onEdit, onDelete }) => {
+const ChapterDisplay = ({ chapter, index, onEdit, onDelete, onDevelopScenes }) => {
   let createdDate = chapter.createdAt;
   try {
     createdDate = chapter.createdAt ? new Date(chapter.createdAt).toLocaleDateString() : '';
@@ -507,6 +531,7 @@ const ChapterDisplay = ({ chapter, index, onEdit, onDelete }) => {
       <div className="chapter-actions">
         <button onClick={onEdit} className="edit-btn">Edit</button>
         <button onClick={onDelete} className="delete-btn">Delete</button>
+        <button onClick={onDevelopScenes} className="scenes-btn">Develop Scenes</button>
       </div>
     </div>
 

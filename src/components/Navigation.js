@@ -41,12 +41,12 @@ const Navigation = () => {
     { path: '/world-builder', label: 'World Builder', icon: '🌍' },
     { path: '/character-assistant', label: 'Character Dev', icon: '👥' },
     { path: '/plot-analyzer', label: 'Plot Structure', icon: '🧭' },
+    { path: '/scene-builder', label: 'Scene Builder', icon: '🎬' },
     { path: '/manuscript-manager', label: 'Manuscript Manager', icon: '📖' }
   ];
 
   const secondaryNavItems = [
     { path: '/', label: 'Writer\'s Flow', icon: '›' },
-    { path: '/scene-builder', label: 'Scene Builder', icon: '›' },
     { path: '/shot-list-manager', label: 'Shot List', icon: '›' },
     { path: '/script-breakdown', label: 'Script Breakdown', icon: '›' },
     { path: '/enhanced-paraphraser', label: 'Literary Paraphraser', icon: '›' },

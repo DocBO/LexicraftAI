@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { geminiService } from '../services/geminiAPI';
+import { useProject } from '../context/ProjectContext';
 
 const SceneBuilder = () => {
   const [sceneText, setSceneText] = useState('');
@@ -8,6 +9,7 @@ const SceneBuilder = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState('builder');
+  const [seedChapter, setSeedChapter] = useState(null);
 
   const sceneTypes = [
     { value: 'dialogue', label: 'Dialogue Scene' },
@@ -17,6 +19,48 @@ const SceneBuilder = () => {
     { value: 'climax', label: 'Climax Scene' },
     { value: 'transition', label: 'Transition Scene' }
   ];
+
+  const { activeProject } = useProject();
+  const sceneSeedKey = useMemo(() => `scene_builder_seed_${activeProject}`, [activeProject]);
+  const seedAppliedRef = useRef(false);
+
+  useEffect(() => {
+    try {
+      const cached = localStorage.getItem(sceneSeedKey);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        setSeedChapter(parsed);
+        seedAppliedRef.current = false;
+      }
+    } catch (err) {
+      console.warn('Failed to load scene seed', err);
+    }
+  }, [sceneSeedKey]);
+
+  useEffect(() => {
+    if (!seedChapter || seedAppliedRef.current) return;
+    const combined = [
+      seedChapter.title ? `# ${seedChapter.title}` : '',
+      seedChapter.outline,
+      seedChapter.content,
+    ].filter(Boolean).join('\n\n');
+    if (combined) {
+      setSceneText(combined);
+    }
+    setActiveTab('builder');
+    seedAppliedRef.current = true;
+  }, [seedChapter]);
+
+  const clearSeed = () => {
+    try {
+      localStorage.removeItem(sceneSeedKey);
+    } catch (err) {
+      console.warn('Failed to clear scene seed', err);
+    }
+    setSeedChapter(null);
+    setSceneText('');
+    seedAppliedRef.current = false;
+  };
 
   const analyzeScene = async () => {
     if (!sceneText.trim()) return;
@@ -73,6 +117,18 @@ const SceneBuilder = () => {
 
       {activeTab === 'builder' && (
         <div className="scene-builder-tab">
+          {seedChapter && (
+            <div className="scene-seed-banner">
+              <div>
+                <h3>{seedChapter.title || 'Imported Chapter'}</h3>
+                {seedChapter.outline && <p>{seedChapter.outline}</p>}
+              </div>
+              <div className="seed-actions">
+                <button className="button tertiary" onClick={clearSeed}>Clear Seed</button>
+              </div>
+            </div>
+          )}
+
           <div className="scene-controls">
             <div className="scene-type-selector">
               <label>Scene Type:</label>
