@@ -81,6 +81,7 @@ class CharacterSuggestionRequest(BaseModel):
 class PlotAnalysisRequest(BaseModel):
     text: str = Field(..., min_length=1)
     plotType: Optional[str] = None
+    directives: Optional[str] = None
 
 
 class ManuscriptAnalysisRequest(BaseModel):
@@ -235,32 +236,120 @@ def create_app() -> FastAPI:
     @app.post("/api/plot/analyze")
     async def plot_analyze(payload: PlotAnalysisRequest) -> Dict[str, Any]:
         prompt = build_plot_prompt(payload)
+        preview = prompt[:400]
+        logger.info(
+            "Plot analysis prompt preview (len=%s): %s%s",
+            len(prompt),
+            preview,
+            "..." if len(prompt) > 400 else "",
+        )
+        if payload.directives:
+            logger.info("Plot analysis directives applied: %s", payload.directives)
         analysis_text = await run_generation(prompt, temperature=0.4)
-        analysis = coerce_json(analysis_text)
-        if analysis is None or not isinstance(analysis, dict):
-            analysis = default_plot_analysis()
+        logger.info(
+            "Plot analysis raw response length: %s (preview: %s%s)",
+            len(analysis_text),
+            analysis_text[:200],
+            "..." if len(analysis_text) > 200 else "",
+        )
 
-        chapters = analysis.get("suggestedChapters")
-        if not isinstance(chapters, list) or not chapters:
-            stages = analysis.get("stages")
-            if isinstance(stages, list):
-                chapters = []
-                for index, stage in enumerate(stages):
-                    title = stage.get("name") or f"Chapter {index + 1}"
-                    description = stage.get("description") or ""
-                    suggestions = stage.get("suggestions")
-                    chapters.append(
-                        {
-                            "title": title,
-                            "summary": description,
-                            "purpose": ", ".join(suggestions) if isinstance(suggestions, list) else stage.get("purpose", "outline"),
-                            "conflict": stage.get("conflict"),
-                            "tags": stage.get("tags") if isinstance(stage.get("tags"), list) else [],
-                        }
-                    )
+        result = coerce_json(analysis_text)
+
+        analysis_block: Dict[str, Any] = {}
+        chapters: List[Dict[str, Any]] = []
+
+        if isinstance(result, dict):
+            maybe_analysis = result.get("analysis")
+            if isinstance(maybe_analysis, dict):
+                analysis_block = maybe_analysis
+            elif {"overallScore", "stages"}.issubset(result.keys()):
+                analysis_block = result
+
+            possible_chapters = result.get("chapterLayout") or result.get("chapters")
+            if isinstance(possible_chapters, list):
+                chapters = possible_chapters
+            elif isinstance(result.get("suggestedChapters"), list):
+                chapters = result["suggestedChapters"]
+        elif isinstance(result, list):
+            chapters = result
+
+        if not analysis_block:
+            logger.warning("Plot analysis fell back to default analysis block")
+            analysis_block = default_plot_analysis()
+
+        if not chapters:
+            layout = analysis_block.get("chapterLayout")
+            if isinstance(layout, list) and layout:
+                chapters = layout
+            else:
+                fallback_chapters = analysis_block.get("suggestedChapters")
+                if isinstance(fallback_chapters, list) and fallback_chapters:
+                    chapters = fallback_chapters
+                else:
+                    stages = analysis_block.get("stages")
+                    if isinstance(stages, list):
+                        chapters = []
+                        for index, stage in enumerate(stages):
+                            title = stage.get("name") or f"Chapter {index + 1}"
+                            description = stage.get("description") or ""
+                            suggestions = stage.get("suggestions")
+                            chapters.append(
+                                {
+                                    "title": title,
+                                    "summary": description,
+                                    "purpose": ", ".join(suggestions) if isinstance(suggestions, list) else stage.get("purpose", "outline"),
+                                    "conflict": stage.get("conflict"),
+                                    "tags": stage.get("tags") if isinstance(stage.get("tags"), list) else [],
+                                }
+                            )
+
         if not isinstance(chapters, list):
+            logger.warning("Plot analysis produced non-list chapters, resetting to empty list")
             chapters = []
-        return {"success": True, "analysis": analysis, "chapters": chapters}
+
+        normalized_chapters: List[Dict[str, Any]] = []
+        for index, entry in enumerate(chapters):
+            if not isinstance(entry, dict):
+                continue
+            title = entry.get("title") or entry.get("name") or f"Chapter {index + 1}"
+            summary = entry.get("summary") or entry.get("description") or ""
+            purpose = entry.get("purpose") or entry.get("goal") or entry.get("focus") or "outline"
+            conflict = entry.get("conflict") or entry.get("tension")
+            tags = entry.get("tags")
+            if not isinstance(tags, list):
+                hooks = entry.get("hooks")
+                if isinstance(hooks, list):
+                    tags = hooks
+            if not isinstance(tags, list):
+                tags = []
+            metadata: Dict[str, Any] = {}
+            if isinstance(entry.get("hooks"), list):
+                metadata["hooks"] = entry["hooks"]
+            if isinstance(entry.get("beats"), list):
+                metadata["beats"] = entry["beats"]
+            if entry.get("number") is not None:
+                metadata["number"] = entry["number"]
+            normalized_chapters.append(
+                {
+                    "title": title,
+                    "summary": summary,
+                    "purpose": purpose,
+                    "conflict": conflict,
+                    "tags": tags,
+                    **({"metadata": metadata} if metadata else {}),
+                }
+            )
+
+        chapters = normalized_chapters
+        return {
+            "success": True,
+            "analysis": analysis_block,
+            "chapters": chapters,
+            "promptPreview": preview,
+            "prompt": prompt,
+            "responsePreview": analysis_text[:400],
+            "directives": payload.directives,
+        }
 
     @app.post("/api/manuscript/analyze")
     async def manuscript_analyze(payload: ManuscriptAnalysisRequest) -> Dict[str, Any]:
@@ -458,29 +547,63 @@ def build_plot_prompt(payload: PlotAnalysisRequest) -> str:
     }
     structure = structure_mapping.get(plot_type, "Custom analysis of narrative structure.")
 
+    directives = (payload.directives or "").strip()
+    directives_block = (
+        f"Additional directives for chapter planning: {directives}\n\n"
+        if directives
+        else ""
+    )
+
+    chapter_goal = (
+        "Follow any explicit directives about chapter count or focus. "
+        "If none are provided, produce a 12-chapter outline that fully covers the narrative arc."
+    )
+
     return (
         f"Analyze the plot structure of the following story using {structure}\n\n"
         f"Text: \"{payload.text}\"\n\n"
+        f"{directives_block}"
+        f"{chapter_goal}\n\n"
+        "Deliver:\n"
+        "1. A structure analysis highlighting acts/stages, turning points, pacing, conflict, character arcs, themes, and actionable recommendations.\n"
+        "2. A chapter layout that distributes the story across the requested or default chapter count, noting purpose, primary conflict/tension, and hooks.\n"
+        "   Chapters must extend beyond simple act summaries and provide granular guidance for drafting scenes.\n\n"
         "Respond with ONLY a valid JSON object (no markdown formatting) in this exact format:\n"
         "{\n"
-        "  \"overallScore\": 85,\n"
-        "  \"stages\": [\n"
+        "  \"analysis\": {\n"
+        "    \"overallScore\": 85,\n"
+        "    \"structureSummary\": \"one paragraph overview\",\n"
+        "    \"stages\": [\n"
+        "      {\n"
+        "        \"name\": \"Act I – Setup\",\n"
+        "        \"focus\": \"what this stage accomplishes\",\n"
+        "        \"progressPercent\": 25,\n"
+        "        \"keyBeats\": [\"inciting incident\", \"turning point\"],\n"
+        "        \"notes\": \"analysis of strengths and risks\"\n"
+        "      }\n"
+        "    ],\n"
+        "    \"pacing\": \"assessment of story pacing\",\n"
+        "    \"conflict\": \"analysis of central conflict\",\n"
+        "    \"characterArc\": \"character development assessment\",\n"
+        "    \"themeDevelopment\": \"theme analysis\",\n"
+        "    \"themes\": [\"theme1\", \"theme2\"],\n"
+        "    \"recommendations\": [\n"
+        "      {\n"
+        "        \"priority\": \"high\",\n"
+        "        \"title\": \"recommendation title\",\n"
+        "        \"description\": \"detailed recommendation\"\n"
+        "      }\n"
+        "    ]\n"
+        "  },\n"
+        "  \"chapterLayout\": [\n"
         "    {\n"
-        "      \"name\": \"stage name\",\n"
-        "      \"completion\": 80,\n"
-        "      \"description\": \"assessment of this stage\",\n"
-        "      \"suggestions\": [\"improvement1\", \"improvement2\"]\n"
-        "    }\n"
-        "  ],\n"
-        "  \"pacing\": \"assessment of story pacing\",\n"
-        "  \"conflict\": \"analysis of conflict development\",\n"
-        "  \"characterArc\": \"character development assessment\",\n"
-        "  \"themeDevelopment\": \"theme analysis\",\n"
-        "  \"recommendations\": [\n"
-        "    {\n"
-        "      \"priority\": \"high\",\n"
-        "      \"title\": \"recommendation title\",\n"
-        "      \"description\": \"detailed recommendation\"\n"
+        "      \"number\": 1,\n"
+        "      \"title\": \"Chapter title\",\n"
+        "      \"summary\": \"short synopsis\",\n"
+        "      \"purpose\": \"narrative purpose\",\n"
+        "      \"conflict\": \"primary tension\",\n"
+        "      \"hooks\": [\"hook1\"],\n"
+        "      \"tags\": [\"setup\", \"character\"]\n"
         "    }\n"
         "  ]\n"
         "}"
@@ -674,6 +797,7 @@ def default_character_suggestions() -> List[Dict[str, Any]]:
 def default_plot_analysis() -> Dict[str, Any]:
     return {
         "overallScore": 75,
+        "structureSummary": "Plot structure analyzed successfully",
         "stages": [
             {
                 "name": "Structure Analysis",
@@ -686,6 +810,7 @@ def default_plot_analysis() -> Dict[str, Any]:
         "conflict": "Conflict development noted",
         "characterArc": "Character development observed",
         "themeDevelopment": "Themes identified",
+        "themes": ["Perseverance"],
         "recommendations": [
             {
                 "priority": "medium",
@@ -693,18 +818,102 @@ def default_plot_analysis() -> Dict[str, Any]:
                 "description": "Continue refining your plot structure",
             }
         ],
-        "suggestedChapters": [
+        "chapterLayout": [
             {
-                "title": "Chapter 1: Opening",
-                "summary": "Introduce the world and main conflict.",
-                "purpose": "Hook the reader and establish stakes.",
-                "tags": ["setup"],
+                "number": 1,
+                "title": "Chapter 1: Opening Image",
+                "summary": "Introduce the protagonist's ordinary world and hint at the central tension.",
+                "purpose": "Hook the reader and establish tone.",
+                "conflict": "Unease with the status quo",
+                "tags": ["setup", "worldbuilding"],
             },
             {
-                "title": "Chapter 2: Rising Action",
-                "summary": "Complications build for the protagonist.",
-                "purpose": "Escalate tension and deepen character arcs.",
+                "number": 2,
+                "title": "Chapter 2: Catalyst",
+                "summary": "The inciting incident disrupts daily life and forces a choice.",
+                "purpose": "Kick off the narrative drive.",
+                "conflict": "Unexpected disruption",
+                "tags": ["inciting-incident"],
+            },
+            {
+                "number": 3,
+                "title": "Chapter 3: Debate",
+                "summary": "Protagonist wrestles with the call to action and stakes escalate.",
+                "purpose": "Deepen internal conflict and stakes.",
+                "conflict": "Doubts and resistance",
+                "tags": ["debate", "character"],
+            },
+            {
+                "number": 4,
+                "title": "Chapter 4: Crossing the Threshold",
+                "summary": "Decision made, the protagonist enters a new arena with unfamiliar rules.",
+                "purpose": "Launch the story into Act II",
+                "conflict": "Facing the unknown",
+                "tags": ["act-transition"],
+            },
+            {
+                "number": 5,
+                "title": "Chapter 5: First Trials",
+                "summary": "Early encounters test skills and establish new allies or enemies.",
+                "purpose": "Explore the new world and dynamics.",
+                "conflict": "Initial resistance",
                 "tags": ["rising-action"],
+            },
+            {
+                "number": 6,
+                "title": "Chapter 6: Midpoint Twist",
+                "summary": "A major revelation or victory flips the stakes and commitment.",
+                "purpose": "Reframe the goal and escalate urgency.",
+                "conflict": "Success with consequences",
+                "tags": ["midpoint"],
+            },
+            {
+                "number": 7,
+                "title": "Chapter 7: Falling Back",
+                "summary": "Opposition regroups and applies pressure, exposing weaknesses.",
+                "purpose": "Show the cost of the new direction.",
+                "conflict": "Escalating pushback",
+                "tags": ["setback"],
+            },
+            {
+                "number": 8,
+                "title": "Chapter 8: Darkest Moment",
+                "summary": "A devastating loss or betrayal strips hope and forces introspection.",
+                "purpose": "Collapse the protagonist's plan and set up rebirth.",
+                "conflict": "All seems lost",
+                "tags": ["low-point"],
+            },
+            {
+                "number": 9,
+                "title": "Chapter 9: Revelation",
+                "summary": "New insight or ally reignites the fight with sharper intent.",
+                "purpose": "Deliver the lesson that solves the conflict.",
+                "conflict": "Choosing a new path",
+                "tags": ["revelation"],
+            },
+            {
+                "number": 10,
+                "title": "Chapter 10: Final Approach",
+                "summary": "Allies rally, resources align, and the protagonist commits fully.",
+                "purpose": "Prepare for the climax.",
+                "conflict": "Countdown pressure",
+                "tags": ["rally"],
+            },
+            {
+                "number": 11,
+                "title": "Chapter 11: Climax",
+                "summary": "Direct confrontation resolves the central conflict through decisive action.",
+                "purpose": "Pay off the promise of the premise.",
+                "conflict": "Ultimate confrontation",
+                "tags": ["climax"],
+            },
+            {
+                "number": 12,
+                "title": "Chapter 12: Resolution",
+                "summary": "Aftermath shows transformed characters and threads tie off.",
+                "purpose": "Deliver emotional closure and tease future possibilities.",
+                "conflict": "Lingering consequences",
+                "tags": ["denouement"],
             },
         ],
     }

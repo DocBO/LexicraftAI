@@ -11,6 +11,11 @@ const PlotAnalyzer = () => {
   const [error, setError] = useState('');
   const [status, setStatus] = useState('');
   const [plotType, setPlotType] = useState('three-act');
+  const [actionPrompt, setActionPrompt] = useState('');
+  const [isPromptOpen, setIsPromptOpen] = useState(false);
+  const [promptPreview, setPromptPreview] = useState('');
+  const [appliedDirectives, setAppliedDirectives] = useState('');
+  const [responsePreview, setResponsePreview] = useState('');
   const { activeProject } = useProject();
   const storageKey = useMemo(() => `plot_analysis_${activeProject}`, [activeProject]);
 
@@ -32,6 +37,11 @@ const PlotAnalyzer = () => {
         setAnalysis(parsed.analysis || null);
         setPlotType(parsed.plotType || 'three-act');
         setChapterSuggestions(Array.isArray(parsed.chapterSuggestions) ? parsed.chapterSuggestions : []);
+        const cachedPrompt = parsed.actionPrompt || '';
+        setActionPrompt(cachedPrompt);
+        setAppliedDirectives(cachedPrompt);
+        setPromptPreview(parsed.promptPreview || '');
+        setResponsePreview(parsed.responsePreview || '');
       }
     } catch (err) {
       console.warn('Failed to load cached plot analysis', err);
@@ -41,9 +51,17 @@ const PlotAnalyzer = () => {
   useEffect(() => {
     localStorage.setItem(
       storageKey,
-      JSON.stringify({ plotText, plotType, analysis, chapterSuggestions })
+      JSON.stringify({
+        plotText,
+        plotType,
+        analysis,
+        chapterSuggestions,
+        actionPrompt,
+        promptPreview,
+        responsePreview,
+      })
     );
-  }, [plotText, plotType, analysis, chapterSuggestions, storageKey]);
+  }, [plotText, plotType, analysis, chapterSuggestions, actionPrompt, promptPreview, responsePreview, storageKey]);
 
   const analyzePlot = async () => {
     if (!plotText.trim()) return;
@@ -52,9 +70,12 @@ const PlotAnalyzer = () => {
     setError('');
     
     try {
-      const response = await geminiService.analyzePlotStructure(plotText, plotType);
+      const response = await geminiService.analyzePlotStructure(plotText, plotType, actionPrompt);
       if (response.success) {
         setAnalysis(response.analysis);
+        setPromptPreview(response.prompt || response.promptPreview || '');
+        setResponsePreview(response.responsePreview || '');
+        setAppliedDirectives(response.directives || (actionPrompt.trim() ? actionPrompt : ''));
         if (Array.isArray(response.chapters) && response.chapters.length > 0) {
           setChapterSuggestions(response.chapters);
           setStatus('Plot analyzed – chapters ready to sync');
@@ -87,7 +108,7 @@ const PlotAnalyzer = () => {
     }
   };
 
-  const persistChapters = async (chapters) => {
+  const persistChapters = async (chapters, promptText = '') => {
     const nowISO = new Date().toISOString();
 
     const normalized = chapters.map((chapter, index) => {
@@ -100,7 +121,14 @@ const PlotAnalyzer = () => {
       const tagsLine = tags.length ? `<p><em>Tags: ${tags.join(', ')}</em></p>` : '';
       const purposeLine = chapter.purpose ? `<p><strong>Purpose:</strong> ${chapter.purpose}</p>` : '';
       const conflictLine = chapter.conflict ? `<p><strong>Conflict:</strong> ${chapter.conflict}</p>` : '';
-      const mergedContent = `${htmlSummary}${purposeLine}${conflictLine}${tagsLine}`;
+      const promptNote = promptText.trim()
+        ? `<p><em>Sync Prompt: ${promptText.trim()}</em></p>`
+        : '';
+      const mergedContent = `${htmlSummary}${purposeLine}${conflictLine}${tagsLine}${promptNote}`;
+      const metadata = { ...(chapter.metadata || {}) };
+      if (promptText.trim()) {
+        metadata.syncPrompt = promptText.trim();
+      }
 
       return {
         id: chapter.id || `plot-${Date.now()}-${index}`,
@@ -109,6 +137,7 @@ const PlotAnalyzer = () => {
         wordCount: safeSummary.split(' ').filter(Boolean).length,
         status: chapter.purpose || 'outline',
         createdAt: chapter.createdAt || nowISO,
+        ...(Object.keys(metadata).length ? { metadata } : {}),
       };
     });
 
@@ -141,9 +170,19 @@ const PlotAnalyzer = () => {
       setStatus('No chapter suggestions to sync');
       return;
     }
-    await persistChapters(chapterSuggestions);
-    setStatus('Chapters synced to Manuscript Manager');
+    await persistChapters(chapterSuggestions, actionPrompt);
+    setStatus(actionPrompt.trim() ? 'Chapters synced with custom prompt' : 'Chapters synced to Manuscript Manager');
     setChapterSuggestions([]);
+  };
+
+  const removeSuggestion = (indexToRemove) => {
+    setChapterSuggestions(prev => prev.filter((_, index) => index !== indexToRemove));
+    setStatus('Chapter suggestion removed');
+  };
+
+  const clearSuggestions = () => {
+    setChapterSuggestions([]);
+    setStatus('Chapter suggestions cleared');
   };
 
   const getStageColor = (completion) => {
@@ -181,14 +220,14 @@ const PlotAnalyzer = () => {
           >
             {loading ? 'Analyzing Plot...' : 'Analyze Plot'}
           </button>
-          {chapterSuggestions.length > 0 && !loading && (
-            <button
-              onClick={handleSyncChapters}
-              className="button secondary"
-            >
-              Sync Chapters
-            </button>
-          )}
+          <button
+            onClick={handleSyncChapters}
+            className="button secondary"
+            disabled={loading || chapterSuggestions.length === 0}
+            title={chapterSuggestions.length === 0 ? 'Analyze your plot to generate chapters' : 'Send suggested chapters to Manuscript Manager'}
+          >
+            Sync Chapters{chapterSuggestions.length > 0 ? ` (${chapterSuggestions.length})` : ''}
+          </button>
         </div>
       </div>
 
@@ -202,6 +241,69 @@ const PlotAnalyzer = () => {
 
       {error && <div className="error-message">{error}</div>}
       {status && <div className="status-message">{status}</div>}
+
+      <div className="plot-chapter-suggestions">
+        <div className="chapter-suggestions-header">
+          <h3>Chapter Suggestions</h3>
+          {chapterSuggestions.length > 0 && (
+            <button className="button tertiary" onClick={clearSuggestions}>
+              Clear All
+            </button>
+          )}
+        </div>
+        {(appliedDirectives || promptPreview || responsePreview) && (
+          <div className="prompt-preview">
+            {appliedDirectives && (
+              <p><strong>Applied Directives:</strong> {appliedDirectives}</p>
+            )}
+            {promptPreview && (
+              <details>
+                <summary>Prompt Preview</summary>
+                <pre>{promptPreview}</pre>
+              </details>
+            )}
+            {responsePreview && (
+              <details>
+                <summary>Response Preview</summary>
+                <pre>{responsePreview}</pre>
+              </details>
+            )}
+          </div>
+        )}
+        {chapterSuggestions.length === 0 ? (
+          <p className="empty-state">Analyze your plot to generate chapter outlines ready for Manuscript Manager.</p>
+        ) : (
+          <div className="suggestions-grid">
+            {chapterSuggestions.map((chapter, index) => (
+              <div key={chapter.id || index} className="suggestion-card">
+                <button
+                  type="button"
+                  className="suggestion-remove"
+                  onClick={() => removeSuggestion(index)}
+                  aria-label={`Remove chapter suggestion ${index + 1}`}
+                >
+                  ×
+                </button>
+                <div className="suggestion-header">
+                  <span className="suggestion-index">Chapter {index + 1}</span>
+                  <h4>{chapter.title || `Untitled Chapter ${index + 1}`}</h4>
+                </div>
+                {chapter.summary && <p className="suggestion-summary">{chapter.summary}</p>}
+                <ul className="suggestion-details">
+                  {chapter.purpose && <li><strong>Purpose:</strong> {chapter.purpose}</li>}
+                  {chapter.conflict && <li><strong>Conflict:</strong> {chapter.conflict}</li>}
+                  {Array.isArray(chapter.tags) && chapter.tags.length > 0 && (
+                    <li><strong>Tags:</strong> {chapter.tags.join(', ')}</li>
+                  )}
+                  {Array.isArray(chapter.metadata?.hooks) && chapter.metadata.hooks.length > 0 && (
+                    <li><strong>Hooks:</strong> {chapter.metadata.hooks.join(', ')}</li>
+                  )}
+                </ul>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {analysis && (
         <div className="plot-analysis">
@@ -297,6 +399,34 @@ const PlotAnalyzer = () => {
           )}
         </div>
       )}
+
+      <div className={`action-prompt-drawer ${isPromptOpen ? 'open' : ''}`}>
+        <button
+          type="button"
+          className="prompt-toggle"
+          onClick={() => setIsPromptOpen(prev => !prev)}
+          aria-expanded={isPromptOpen}
+        >
+          {isPromptOpen ? 'Close Action Prompt' : 'Open Action Prompt'}
+        </button>
+        {isPromptOpen && (
+          <div className="prompt-content">
+            <label htmlFor="action-prompt-input">Sync Prompt</label>
+            <textarea
+              id="action-prompt-input"
+              value={actionPrompt}
+              onChange={(e) => setActionPrompt(e.target.value)}
+              placeholder="Add extra guidance for chapter sync (e.g., ensure 12 chapters)."
+            />
+            <div className="prompt-actions">
+              <button className="button tertiary" onClick={() => setActionPrompt('')}>
+                Clear Prompt
+              </button>
+              <span className="prompt-hint">This note is attached whenever chapters sync to the Manuscript Manager.</span>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 };

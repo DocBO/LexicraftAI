@@ -314,9 +314,9 @@ class GeminiService {
   }
 
   // Plot structure analysis
-  async analyzePlotStructure(text, plotType) {
+  async analyzePlotStructure(text, plotType, directives = '') {
     if (this.usingBackend) {
-      return await this.requestBackend('/api/plot/analyze', { text, plotType });
+      return await this.requestBackend('/api/plot/analyze', { text, plotType, directives });
     }
 
     if (!this.genAI) {
@@ -344,30 +344,56 @@ class GeminiService {
         structureGuide = 'Custom analysis of narrative structure';
     }
 
+    const directiveText = directives?.trim()
+      ? `Additional directives for chapter planning: ${directives.trim()}\n\n`
+      : '';
+
     const prompt = `Analyze the plot structure of the following story using ${structureGuide}.
     
     Text: "${text}"
     
+    ${directiveText}Follow any explicit directives about chapter count or focus. If none are provided, produce a 12-chapter outline that fully covers the narrative arc.
+    
+    Deliver:
+    1. A structure analysis highlighting acts/stages, turning points, pacing, conflict, character arcs, themes, and actionable recommendations.
+    2. A chapter layout that distributes the story across the requested or default chapter count. Each chapter must include purpose, primary conflict/tension, and hooks, and should go beyond summarizing an act.
+    
     Respond with ONLY a valid JSON object (no markdown formatting) in this exact format:
     {
-      "overallScore": 85,
-      "stages": [
+      "analysis": {
+        "overallScore": 85,
+        "structureSummary": "one paragraph overview",
+        "stages": [
+          {
+            "name": "Act I – Setup",
+            "focus": "what this stage accomplishes",
+            "progressPercent": 25,
+            "keyBeats": ["inciting incident", "turning point"],
+            "notes": "analysis of strengths and risks"
+          }
+        ],
+        "pacing": "assessment of story pacing",
+        "conflict": "analysis of central conflict",
+        "characterArc": "character development assessment",
+        "themeDevelopment": "theme analysis",
+        "themes": ["theme1", "theme2"],
+        "recommendations": [
+          {
+            "priority": "high",
+            "title": "recommendation title",
+            "description": "detailed recommendation"
+          }
+        ]
+      },
+      "chapterLayout": [
         {
-          "name": "stage name",
-          "completion": 80,
-          "description": "assessment of this stage",
-          "suggestions": ["improvement1", "improvement2"]
-        }
-      ],
-      "pacing": "assessment of story pacing",
-      "conflict": "analysis of conflict development",
-      "characterArc": "character development assessment",
-      "themeDevelopment": "theme analysis",
-      "recommendations": [
-        {
-          "priority": "high",
-          "title": "recommendation title",
-          "description": "detailed recommendation"
+          "number": 1,
+          "title": "Chapter title",
+          "summary": "short synopsis",
+          "purpose": "narrative purpose",
+          "conflict": "primary tension",
+          "hooks": ["hook1"],
+          "tags": ["setup", "character"]
         }
       ]
     }`;
@@ -376,31 +402,41 @@ class GeminiService {
       const model = this.genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
       const result = await model.generateContent(prompt);
       const response = await result.response;
-      
-      const analysis = this.cleanAndParseResponse(response.text()) || {
+      const parsed = this.cleanAndParseResponse(response.text());
+
+      const analysis = parsed?.analysis || {
         overallScore: 75,
+        structureSummary: 'Plot structure analyzed successfully',
         stages: [
           {
-            name: "Structure Analysis",
-            completion: 75,
-            description: "Plot structure analyzed successfully",
-            suggestions: ["Continue developing your story structure"]
+            name: 'Structure Analysis',
+            focus: 'Overview of acts and turning points',
+            progressPercent: 75,
+            keyBeats: ['Inciting Incident', 'Climax'],
+            notes: 'Continue developing your story structure'
           }
         ],
-        pacing: "Pacing analysis completed",
-        conflict: "Conflict development noted",
-        characterArc: "Character development observed",
-        themeDevelopment: "Themes identified",
+        pacing: 'Pacing analysis completed',
+        conflict: 'Conflict development noted',
+        characterArc: 'Character development observed',
+        themeDevelopment: 'Themes identified',
+        themes: ['Perseverance'],
         recommendations: [
           {
-            priority: "medium",
-            title: "General Development",
-            description: "Continue refining your plot structure"
+            priority: 'medium',
+            title: 'General Development',
+            description: 'Continue refining your plot structure'
           }
         ]
       };
 
-      return { success: true, analysis };
+      const layout = Array.isArray(parsed?.chapterLayout)
+        ? parsed.chapterLayout
+        : Array.isArray(parsed?.chapters)
+          ? parsed.chapters
+          : [];
+
+      return { success: true, analysis, chapters: layout };
     } catch (error) {
       throw new Error(`Plot analysis failed: ${error.message}`);
     }
