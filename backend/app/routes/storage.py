@@ -23,7 +23,7 @@ DEFAULT_WORKSPACE = "default"
 
 
 class ManuscriptChapterPayload(BaseModel):
-    id: Optional[int] = None
+    id: Optional[Any] = None
     title: str
     content: str
     wordCount: Optional[int] = 0
