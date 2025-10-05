@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 import re
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
@@ -23,7 +23,7 @@ DEFAULT_WORKSPACE = "default"
 
 
 class ManuscriptChapterPayload(BaseModel):
-    id: Optional[Any] = None
+    id: Optional[Union[int, str]] = None
     title: str
     content: str
     wordCount: Optional[int] = 0
