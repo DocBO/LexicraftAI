@@ -10,6 +10,7 @@ const Navigation = () => {
   const [showProjectModal, setShowProjectModal] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
   const [projectError, setProjectError] = useState('');
+  const [showMoreTools, setShowMoreTools] = useState(false);
   const { projects, activeProject, setActiveProject, createProject, loading: projectsLoading } = useProject();
 
   const themes = [
@@ -25,6 +26,10 @@ const Navigation = () => {
     document.body.setAttribute('data-theme', savedTheme);
   }, []);
 
+  useEffect(() => {
+    setShowMoreTools(false);
+  }, [location.pathname]);
+
   const handleThemeChange = (e) => {
     const newTheme = e.target.value;
     setTheme(newTheme);
@@ -32,11 +37,14 @@ const Navigation = () => {
     document.body.setAttribute('data-theme', newTheme);
   };
 
-  const navItems = [
+  const primaryNavItems = [
     { path: '/world-builder', label: 'World Builder', icon: '🌍' },
     { path: '/character-assistant', label: 'Character Dev', icon: '👥' },
     { path: '/plot-analyzer', label: 'Plot Structure', icon: '🧭' },
-    { path: '/manuscript-manager', label: 'Manuscript Manager', icon: '📖' },
+    { path: '/manuscript-manager', label: 'Manuscript Manager', icon: '📖' }
+  ];
+
+  const secondaryNavItems = [
     { path: '/', label: 'Writer\'s Flow', icon: '›' },
     { path: '/scene-builder', label: 'Scene Builder', icon: '›' },
     { path: '/shot-list-manager', label: 'Shot List', icon: '›' },
@@ -55,6 +63,7 @@ const Navigation = () => {
 
   const closeMobileMenu = () => {
     setIsMobileMenuOpen(false);
+    setShowMoreTools(false);
   };
 
   return (
@@ -100,7 +109,7 @@ const Navigation = () => {
           </div>
         </div>
         <ul className="nav-links">
-          {navItems.map((item) => (
+          {primaryNavItems.map((item) => (
             <li key={item.path}>
               <Link 
                 to={item.path} 
@@ -112,6 +121,38 @@ const Navigation = () => {
               </Link>
             </li>
           ))}
+
+          <li className="nav-more">
+            <button
+              type="button"
+              className={`nav-more-button ${showMoreTools ? 'open' : ''}`}
+              onClick={() => setShowMoreTools(prev => !prev)}
+              aria-expanded={showMoreTools}
+              aria-controls="more-tools-menu"
+            >
+              <span className="nav-icon">{showMoreTools ? '▾' : '▸'}</span>
+              More Tools
+            </button>
+          </li>
+
+          {showMoreTools && (
+            <li className="nav-secondary-group" id="more-tools-menu">
+              <ul className="nav-secondary-list">
+                {secondaryNavItems.map((item) => (
+                  <li key={item.path}>
+                    <Link 
+                      to={item.path} 
+                      className={location.pathname === item.path ? 'active' : ''}
+                      onClick={closeMobileMenu}
+                    >
+                      <span className="nav-icon">{item.icon}</span>
+                      {item.label}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </li>
+          )}
         </ul>
 
         <div className="theme-selector">
