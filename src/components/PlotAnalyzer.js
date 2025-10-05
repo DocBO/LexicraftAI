@@ -339,6 +339,9 @@ const PlotAnalyzer = () => {
                 <span className="score-label">Structure Score</span>
               </div>
             </div>
+            {analysis.structureSummary && (
+              <p className="structure-summary">{analysis.structureSummary}</p>
+            )}
           </div>
 
           <div className="plot-stages">

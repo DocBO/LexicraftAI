@@ -1899,6 +1899,13 @@ body {
   border: 1px solid var(--border-color);
 }
 
+.plot-analyzer .plot-overview .structure-summary {
+  flex: 1;
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
 .score-circle {
   display: flex;
   flex-direction: column;
