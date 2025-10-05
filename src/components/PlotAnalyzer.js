@@ -175,7 +175,7 @@ const PlotAnalyzer = () => {
     }
   };
 
-  const persistChapters = async (chapters, promptText = '') => {
+  const persistChapters = async (chapters, promptText = '', replaceExisting = false) => {
     const nowISO = new Date().toISOString();
 
     const normalized = chapters.map((chapter, index) => {
@@ -209,11 +209,16 @@ const PlotAnalyzer = () => {
     });
 
     try {
-      const existing = await loadExistingChapters();
-      const filteredExisting = existing.filter(existingChapter =>
-        !normalized.some(newChapter => newChapter.title === existingChapter.title)
-      );
-      const combined = [...normalized, ...filteredExisting];
+      let combined = normalized;
+
+      if (!replaceExisting) {
+        const existing = await loadExistingChapters();
+        const filteredExisting = existing.filter(existingChapter =>
+          !normalized.some(newChapter => newChapter.title === existingChapter.title)
+        );
+        combined = [...normalized, ...filteredExisting];
+      }
+
       const response = await storageService.saveManuscript(combined, activeProject);
       if (!storageService.isBackendEnabled()) {
         localStorage.setItem(
@@ -237,8 +242,16 @@ const PlotAnalyzer = () => {
       setStatus('No chapter suggestions to sync');
       return;
     }
-    await persistChapters(chapterSuggestions, actionPrompt);
-    setStatus(actionPrompt.trim() ? 'Chapters synced with custom prompt' : 'Chapters synced to Manuscript Manager');
+    const replaceExisting = window.confirm(
+      'Replace existing Manuscript Manager chapters with these suggestions?\n\nSelect OK to replace, or Cancel to append the new chapters to your current manuscript.'
+    );
+
+    await persistChapters(chapterSuggestions, actionPrompt, replaceExisting);
+    setStatus(
+      replaceExisting
+        ? 'Chapters replaced in Manuscript Manager'
+        : 'Chapters appended to Manuscript Manager'
+    );
     setChapterSuggestions([]);
   };
 
