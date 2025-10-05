@@ -30,7 +30,7 @@ const ManuscriptManager = () => {
   const { activeProject } = useProject();
   const storageEnabled = storageService.isBackendEnabled();
   const [chapters, setChapters] = useState([]);
-  const [currentChapter, setCurrentChapter] = useState({ title: '', content: '', wordCount: 0 });
+  const [currentChapter, setCurrentChapter] = useState({ title: '', outline: '', content: '', wordCount: 0 });
   const [analysis, setAnalysis] = useState(null);
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [factExtractionLoading, setFactExtractionLoading] = useState(false);
@@ -50,7 +50,11 @@ const ManuscriptManager = () => {
         try {
           const response = await storageService.loadManuscript(activeProject);
           if (!cancelled && response?.chapters) {
-            setChapters(response.chapters);
+            const normalized = response.chapters.map(chapter => ({
+              outline: '',
+              ...chapter,
+            }));
+            setChapters(normalized);
           }
         } catch (err) {
           if (!cancelled) {
@@ -65,7 +69,11 @@ const ManuscriptManager = () => {
         const key = `manuscript_chapters_${activeProject}`;
         const savedChapters = localStorage.getItem(key);
         if (!cancelled && savedChapters) {
-          setChapters(JSON.parse(savedChapters));
+          const parsed = JSON.parse(savedChapters);
+          const normalized = Array.isArray(parsed)
+            ? parsed.map(chapter => ({ outline: '', ...chapter }))
+            : [];
+          setChapters(normalized);
         }
         if (!cancelled) {
           setStorageReady(true);
@@ -86,8 +94,9 @@ const ManuscriptManager = () => {
       try {
         const saved = await storageService.saveManuscript(nextChapters, activeProject);
         if (saved?.chapters) {
-          setChapters(saved.chapters);
-          return saved.chapters;
+          const normalized = saved.chapters.map(chapter => ({ outline: '', ...chapter }));
+          setChapters(normalized);
+          return normalized;
         }
       } catch (err) {
         setError('Failed to save chapters: ' + err.message);
@@ -101,12 +110,13 @@ const ManuscriptManager = () => {
 
   const addChapter = async () => {
     if (!storageReady) return;
+    if (!currentChapter.title.trim()) return;
     const plainContent = getPlainText(currentChapter.content);
-    if (!currentChapter.title.trim() || !plainContent.trim()) return;
 
     const newChapter = {
       id: Date.now(),
       title: currentChapter.title,
+      outline: currentChapter.outline,
       content: currentChapter.content,
       wordCount: plainContent.split(' ').filter(w => w).length,
       createdAt: new Date().toLocaleDateString(),
@@ -115,7 +125,7 @@ const ManuscriptManager = () => {
 
     const next = [...chapters, newChapter];
     await persistChapters(next);
-    setCurrentChapter({ title: '', content: '', wordCount: 0 });
+    setCurrentChapter({ title: '', outline: '', content: '', wordCount: 0 });
   };
 
   const updateChapter = async (id, updatedChapter) => {
@@ -146,11 +156,15 @@ const ManuscriptManager = () => {
     setError('');
 
     try {
-      const chapterData = chapters.map(ch => ({
-        title: ch.title,
-        wordCount: ch.wordCount,
-        content: getPlainText(ch.content).substring(0, 500) // First 500 chars for analysis
-      }));
+      const chapterData = chapters.map(ch => {
+        const contentPlain = getPlainText(ch.content);
+        const combined = [ch.outline, contentPlain].filter(Boolean).join('\n');
+        return {
+          title: ch.title,
+          wordCount: ch.wordCount,
+          content: combined.substring(0, 500)
+        };
+      });
 
       const response = await geminiService.analyzeManuscript(chapterData);
       if (response.success) {
@@ -179,7 +193,12 @@ const ManuscriptManager = () => {
     try {
       setFactExtractionLoading(true);
       const facts = chapters.flatMap(chapter => {
-        const text = getPlainText(chapter.content);
+        const contentPlain = getPlainText(chapter.content);
+        const textSource = [chapter.outline, contentPlain].filter(Boolean).join('. ');
+        if (!textSource.trim()) {
+          return [];
+        }
+        const text = textSource;
         const sentences = text.split(/(?<=[\.\!\?])\s+/);
         const majorSentences = sentences.filter(sentence => sentence.split(' ').length >= 6);
         return majorSentences.slice(0, 2).map((sentence, index) => ({
@@ -257,6 +276,13 @@ const ManuscriptManager = () => {
     }
   };
 
+  const handleOutlineChange = (outline) => {
+    setCurrentChapter(prev => ({
+      ...prev,
+      outline,
+    }));
+  };
+
   const handleContentChange = (content) => {
     setCurrentChapter(prev => ({
       ...prev,
@@ -300,6 +326,14 @@ const ManuscriptManager = () => {
           placeholder="Chapter title..."
           className="chapter-title-input"
         />
+
+        <textarea
+          value={currentChapter.outline}
+          onChange={(e) => handleOutlineChange(e.target.value)}
+          placeholder="Chapter outline..."
+          className="chapter-outline-input"
+          rows={4}
+        />
         
         <ReactQuill
           value={currentChapter.content}
@@ -314,7 +348,11 @@ const ManuscriptManager = () => {
           <span className="word-count">{currentChapter.wordCount} words</span>
           <button 
             onClick={addChapter}
-            disabled={!storageReady || !currentChapter.title.trim() || !getPlainText(currentChapter.content).trim()}
+            disabled={
+              !storageReady ||
+              !currentChapter.title.trim() ||
+              !(currentChapter.outline.trim() || getPlainText(currentChapter.content).trim())
+            }
             className="button"
           >
             Add Chapter
@@ -471,15 +509,28 @@ const ChapterDisplay = ({ chapter, index, onEdit, onDelete }) => {
         <button onClick={onDelete} className="delete-btn">Delete</button>
       </div>
     </div>
-    
+
     <div className="chapter-meta">
       <span className="word-count">{chapter.wordCount} words</span>
       <span className="created-date">{createdDate}</span>
       <span className={`status ${chapter.status}`}>{chapter.status}</span>
     </div>
     
+    {chapter.outline && (
+      <div className="chapter-outline-preview">
+        <strong>Outline:</strong>
+        <p>{chapter.outline}</p>
+      </div>
+    )}
+
     <div className="chapter-preview">
-      {getPlainText(chapter.content).substring(0, 200)}...
+      {(() => {
+        const contentPreview = getPlainText(chapter.content).trim();
+        if (!contentPreview) {
+          return <em>No chapter content yet.</em>;
+        }
+        return `${contentPreview.substring(0, 200)}${contentPreview.length > 200 ? '…' : ''}`;
+      })()}
     </div>
     </div>
   );
@@ -487,11 +538,12 @@ const ChapterDisplay = ({ chapter, index, onEdit, onDelete }) => {
 
 const ChapterEditor = ({ chapter, onSave, onCancel }) => {
   const [title, setTitle] = useState(chapter.title);
+  const [outline, setOutline] = useState(chapter.outline || '');
   const [content, setContent] = useState(chapter.content);
   const [status, setStatus] = useState(chapter.status);
 
   const handleSave = () => {
-    onSave({ title, content, status });
+    onSave({ title, outline, content, status });
   };
 
   return (
@@ -512,6 +564,14 @@ const ChapterEditor = ({ chapter, onSave, onCancel }) => {
         <option value="review">In Review</option>
         <option value="final">Final</option>
       </select>
+
+      <textarea
+        value={outline}
+        onChange={(e) => setOutline(e.target.value)}
+        className="chapter-outline-input"
+        rows={4}
+        placeholder="Chapter outline..."
+      />
       
       <ReactQuill
         value={content}

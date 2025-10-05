@@ -16,6 +16,7 @@ class ManuscriptChapter(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     workspace_id: str = Field(foreign_key="workspace.id", index=True)
     title: str
+    outline: str = ""
     content_html: str
     content_plain: str
     word_count: int = 0

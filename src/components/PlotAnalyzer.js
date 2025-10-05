@@ -162,13 +162,14 @@ const PlotAnalyzer = () => {
   const loadExistingChapters = async () => {
     if (storageService.isBackendEnabled()) {
       const resp = await storageService.loadManuscript(activeProject);
-      return resp?.chapters || [];
+      return (resp?.chapters || []).map(chapter => ({ outline: '', ...chapter }));
     }
     const key = `manuscript_chapters_${activeProject}`;
     const cached = localStorage.getItem(key);
     if (!cached) return [];
     try {
-      return JSON.parse(cached);
+      const parsed = JSON.parse(cached);
+      return Array.isArray(parsed) ? parsed.map(chapter => ({ outline: '', ...chapter })) : [];
     } catch (err) {
       console.warn('Failed to parse cached manuscript chapters', err);
       return [];
@@ -182,29 +183,31 @@ const PlotAnalyzer = () => {
       const safeTitle = chapter.title || `Untitled Chapter ${index + 1}`;
       const safeSummary = chapter.summary || '';
       const tags = Array.isArray(chapter.tags) ? chapter.tags : [];
-      const htmlSummary = safeSummary
-        ? `<p>${safeSummary.replace(/\n/g, '<br/>')}</p>`
-        : '<p></p>';
-      const tagsLine = tags.length ? `<p><em>Tags: ${tags.join(', ')}</em></p>` : '';
-      const purposeLine = chapter.purpose ? `<p><strong>Purpose:</strong> ${chapter.purpose}</p>` : '';
-      const conflictLine = chapter.conflict ? `<p><strong>Conflict:</strong> ${chapter.conflict}</p>` : '';
-      const promptNote = promptText.trim()
-        ? `<p><em>Sync Prompt: ${promptText.trim()}</em></p>`
-        : '';
-      const mergedContent = `${htmlSummary}${purposeLine}${conflictLine}${tagsLine}${promptNote}`;
-      const metadata = { ...(chapter.metadata || {}) };
-      if (promptText.trim()) {
-        metadata.syncPrompt = promptText.trim();
-      }
+      const hooks = Array.isArray(chapter.hooks)
+        ? chapter.hooks
+        : Array.isArray(chapter.metadata?.hooks)
+        ? chapter.metadata.hooks
+        : [];
+
+      const outlineParts = [
+        safeSummary && `Summary: ${safeSummary}`,
+        chapter.purpose && `Purpose: ${chapter.purpose}`,
+        chapter.conflict && `Conflict: ${chapter.conflict}`,
+        hooks.length ? `Hooks: ${hooks.join(', ')}` : '',
+        tags.length ? `Tags: ${tags.join(', ')}` : '',
+        promptText.trim() ? `Sync Prompt: ${promptText.trim()}` : '',
+      ].filter(Boolean);
+
+      const outline = outlineParts.join('\n');
 
       return {
         id: chapter.id || `plot-${Date.now()}-${index}`,
         title: safeTitle,
-        content: mergedContent,
-        wordCount: safeSummary.split(' ').filter(Boolean).length,
+        outline,
+        content: '',
+        wordCount: 0,
         status: chapter.purpose || 'outline',
         createdAt: chapter.createdAt || nowISO,
-        ...(Object.keys(metadata).length ? { metadata } : {}),
       };
     });
 

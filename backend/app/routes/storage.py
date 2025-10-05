@@ -25,6 +25,7 @@ DEFAULT_WORKSPACE = "default"
 class ManuscriptChapterPayload(BaseModel):
     id: Optional[Union[int, str]] = None
     title: str
+    outline: Optional[str] = ""
     content: str
     wordCount: Optional[int] = 0
     status: Optional[str] = "draft"
@@ -103,11 +104,15 @@ async def save_manuscript(payload: ManuscriptSaveRequest, session: Session = Dep
     saved: List[ManuscriptChapter] = []
     now = datetime.utcnow()
     for item in payload.chapters:
-        plain = strip_html(item.content)
+        content_html = item.content or ""
+        plain = strip_html(content_html)
+        if not plain and item.outline:
+            plain = item.outline
         chapter = ManuscriptChapter(
             workspace_id=workspace_id,
             title=item.title,
-            content_html=item.content,
+            outline=item.outline or "",
+            content_html=content_html,
             content_plain=plain,
             word_count=item.wordCount or len(plain.split()),
             status=item.status or "draft",
@@ -220,6 +225,7 @@ def chapter_to_dict(chapter: ManuscriptChapter) -> dict:
     return {
         "id": chapter.id,
         "title": chapter.title,
+        "outline": chapter.outline,
         "content": chapter.content_html,
         "wordCount": chapter.word_count,
         "status": chapter.status,
