@@ -2008,6 +2008,125 @@ body {
   }
 }
 
+.plot-insights {
+  margin-top: 2.5rem;
+  display: grid;
+  gap: 1.25rem;
+}
+
+.plot-insights .insights-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+}
+
+.insight-card {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 1rem;
+  background: var(--bg-primary);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.insight-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent-secondary);
+}
+
+.insight-card p {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.insight-timing {
+  border-left: 4px solid #0ea5e9;
+  padding-left: 0.85rem;
+}
+
+.insight-conflict {
+  border-left: 4px solid #f97316;
+  padding-left: 0.85rem;
+}
+
+.insight-character {
+  border-left: 4px solid #8b5cf6;
+  padding-left: 0.85rem;
+}
+
+.insight-theme {
+  border-left: 4px solid #10b981;
+  padding-left: 0.85rem;
+}
+
+.plot-recommendations {
+  margin-top: 2.5rem;
+  display: grid;
+  gap: 1.25rem;
+}
+
+.recommendations-list {
+  display: grid;
+  gap: 1rem;
+}
+
+.recommendation-card {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 1.25rem;
+  background: var(--bg-primary);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.recommendation-card header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.recommendation-card h5 {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--text-primary);
+}
+
+.priority-pill {
+  border-radius: 999px;
+  padding: 0.35rem 0.9rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-on-accent);
+  background: var(--accent-secondary);
+}
+
+.priority-pill.priority-high {
+  background: #ef4444;
+}
+
+.priority-pill.priority-medium {
+  background: #f59e0b;
+}
+
+.priority-pill.priority-low {
+  background: #10b981;
+}
+
+.recommendation-card p {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
 .score-circle {
   display: flex;
   flex-direction: column;

@@ -3,6 +3,27 @@ import { geminiService } from '../services/geminiAPI';
 import { useProject } from '../context/ProjectContext';
 import { storageService } from '../services/storageService';
 
+const InsightCard = ({ label, value, accent }) => {
+  if (!value) return null;
+
+  let content = Array.isArray(value)
+    ? value.filter(Boolean).join(', ')
+    : value;
+
+  if (typeof content === 'object') {
+    content = JSON.stringify(content);
+  }
+
+  if (!content) return null;
+
+  return (
+    <article className={`insight-card insight-${accent}`}>
+      <span className="insight-label">{label}</span>
+      <p>{content}</p>
+    </article>
+  );
+};
+
 const PlotAnalyzer = () => {
   const [plotText, setPlotText] = useState('');
   const [analysis, setAnalysis] = useState(null);
@@ -421,41 +442,29 @@ const PlotAnalyzer = () => {
           </div>
 
           <div className="plot-insights">
-            <h4>Story Insights:</h4>
+            <h4>Story Insights</h4>
             <div className="insights-grid">
-              <div className="insight-card">
-                <h5>Pacing</h5>
-                <p>{analysis.pacing}</p>
-              </div>
-              <div className="insight-card">
-                <h5>Conflict</h5>
-                <p>{analysis.conflict}</p>
-              </div>
-              <div className="insight-card">
-                <h5>Character Arc</h5>
-                <p>{analysis.characterArc}</p>
-              </div>
-              <div className="insight-card">
-                <h5>Theme Development</h5>
-                <p>{analysis.themeDevelopment}</p>
-              </div>
+              <InsightCard label="Pacing" value={analysis.pacing} accent="timing" />
+              <InsightCard label="Conflict" value={analysis.conflict} accent="conflict" />
+              <InsightCard label="Character Arc" value={analysis.characterArc} accent="character" />
+              <InsightCard label="Themes" value={analysis.themes || analysis.themeDevelopment} accent="theme" />
             </div>
           </div>
 
-          {analysis.recommendations && (
+          {Array.isArray(analysis.recommendations) && analysis.recommendations.length > 0 && (
             <div className="plot-recommendations">
-              <h4>Recommendations:</h4>
+              <h4>Recommendations</h4>
               <div className="recommendations-list">
                 {analysis.recommendations.map((rec, index) => (
-                  <div key={index} className="recommendation-item">
-                    <div className="recommendation-priority">
-                      {rec.priority.toUpperCase()}
-                    </div>
-                    <div className="recommendation-content">
-                      <h5>{rec.title}</h5>
-                      <p>{rec.description}</p>
-                    </div>
-                  </div>
+                  <article key={index} className="recommendation-card">
+                    <header>
+                      <span className={`priority-pill priority-${(rec.priority || 'medium').toLowerCase()}`}>
+                        {rec.priority || 'medium'}
+                      </span>
+                      <h5>{rec.title || `Recommendation ${index + 1}`}</h5>
+                    </header>
+                    <p>{rec.description}</p>
+                  </article>
                 ))}
               </div>
             </div>
