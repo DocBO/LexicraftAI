@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { geminiService } from '../services/geminiAPI';
 import { useProject } from '../context/ProjectContext';
 import { storageService } from '../services/storageService';
@@ -49,6 +49,14 @@ const PlotAnalyzer = () => {
     { value: 'custom', label: 'Custom Analysis' }
   ];
 
+  const initialLoad = useRef(true);
+  const skipNextReset = useRef(false);
+  const latestPlotType = useRef(plotType);
+
+  useEffect(() => {
+    latestPlotType.current = plotType;
+  }, [plotType]);
+
   useEffect(() => {
     try {
       const cached = localStorage.getItem(storageKey);
@@ -56,7 +64,13 @@ const PlotAnalyzer = () => {
         const parsed = JSON.parse(cached);
         setPlotText(parsed.plotText || '');
         setAnalysis(parsed.analysis || null);
-        setPlotType(parsed.plotType || 'three-act');
+        const parsedType = parsed.plotType || 'three-act';
+        if (parsedType !== latestPlotType.current) {
+          skipNextReset.current = true;
+          setPlotType(parsedType);
+        } else {
+          setPlotType(parsedType);
+        }
         setChapterSuggestions(Array.isArray(parsed.chapterSuggestions) ? parsed.chapterSuggestions : []);
         const cachedPrompt = parsed.actionPrompt || '';
         setActionPrompt(cachedPrompt);
@@ -102,6 +116,14 @@ const PlotAnalyzer = () => {
   }, [storageKey]);
 
   useEffect(() => {
+    if (initialLoad.current) {
+      initialLoad.current = false;
+      return;
+    }
+    if (skipNextReset.current) {
+      skipNextReset.current = false;
+      return;
+    }
     resetAnalysis(false, true);
     setAppliedDirectives('');
   }, [plotType, resetAnalysis]);
