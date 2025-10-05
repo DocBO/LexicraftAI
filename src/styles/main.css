@@ -2029,6 +2029,12 @@ body {
   border-top: 1px solid var(--border-color);
 }
 
+.manuscript-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
 .chapters-header {
   display: flex;
   justify-content: space-between;

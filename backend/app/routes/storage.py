@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from sqlmodel import Session, delete, select
 
 from ..database import get_session
-from ..models import ManuscriptChapter, Shot, ShotListScript, Workspace
+from ..models import ManuscriptChapter, Shot, ShotListScript, Workspace, WorldFact
 from ..vector_store import vector_store
 
 

@@ -160,6 +160,86 @@ const ManuscriptManager = () => {
     }
   };
 
+  const extractWorldFacts = async () => {
+    if (!storageReady || chapters.length === 0) {
+      setError('No chapters available to extract facts.');
+      return;
+    }
+
+    try {
+      const facts = chapters.flatMap(chapter => {
+        const text = getPlainText(chapter.content);
+        const sentences = text.split(/(?<=[\.\!\?])\s+/);
+        const majorSentences = sentences.filter(sentence => sentence.split(' ').length >= 6);
+        return majorSentences.slice(0, 2).map((sentence, index) => ({
+          title: `${chapter.title || 'Chapter'} Fact ${index + 1}`,
+          summary: sentence.trim(),
+          details: {
+            chapter: chapter.title,
+            status: chapter.status,
+          },
+          tags: ['auto-extracted', chapter.status].filter(Boolean),
+        }));
+      });
+
+      if (!facts.length) {
+        setStatus('No substantial facts extracted.');
+        return;
+      }
+
+      for (const fact of facts) {
+        await storageService.saveWorldFact(fact, activeProject);
+      }
+
+      setStatus(`${facts.length} world facts extracted and saved.`);
+    } catch (err) {
+      setError('Failed to extract world facts: ' + err.message);
+    }
+  };
+
+  const checkWorldConsistency = async () => {
+    setLoading(true);
+    setError('');
+    setStatus('');
+
+    try {
+      const facts = await storageService.listWorldFacts(activeProject);
+      if (!facts.length) {
+        setStatus('No world facts available to cross-check.');
+        return;
+      }
+
+      const factMap = new Map();
+      const conflicts = [];
+
+      facts.forEach(fact => {
+        const key = fact.title.toLowerCase();
+        if (factMap.has(key) && factMap.get(key).summary !== fact.summary) {
+          conflicts.push({
+            title: fact.title,
+            summaries: [factMap.get(key).summary, fact.summary],
+          });
+        } else {
+          factMap.set(key, fact);
+        }
+      });
+
+      if (conflicts.length) {
+        setAnalysis(prev => ({
+          ...(prev || {}),
+          worldConsistency: conflicts,
+        }));
+        setStatus(`World consistency issues found: ${conflicts.length}`);
+      } else {
+        setStatus('World facts align with the manuscript.');
+      }
+    } catch (err) {
+      setError('Failed to check world consistency: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleContentChange = (content) => {
     setCurrentChapter(prev => ({
       ...prev,
@@ -228,13 +308,29 @@ const ManuscriptManager = () => {
       <div className="chapters-list">
         <div className="chapters-header">
           <h3>Chapters ({chapters.length})</h3>
-          <button 
-            onClick={analyzeManuscript}
-            disabled={loading || chapters.length === 0 || !storageReady}
-            className="button secondary"
-          >
-            {loading ? 'Analyzing...' : 'Analyze Manuscript'}
-          </button>
+          <div className="manuscript-actions">
+            <button 
+              onClick={analyzeManuscript}
+              disabled={loading || chapters.length === 0 || !storageReady}
+              className="button secondary"
+            >
+              {loading ? 'Analyzing...' : 'Analyze Manuscript'}
+            </button>
+            <button
+              onClick={extractWorldFacts}
+              disabled={!storageReady || chapters.length === 0}
+              className="button secondary"
+            >
+              Extract World Facts
+            </button>
+            <button
+              onClick={checkWorldConsistency}
+              disabled={loading}
+              className="button secondary"
+            >
+              Check World Consistency
+            </button>
+          </div>
         </div>
 
         {chapters.map((chapter, index) => (
