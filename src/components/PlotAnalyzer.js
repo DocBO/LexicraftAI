@@ -209,10 +209,10 @@ const PlotAnalyzer = () => {
     setStatus('Chapter suggestions cleared');
   };
 
-  const getStageColor = (completion) => {
-    if (completion >= 80) return '#22c55e';
-    if (completion >= 60) return '#eab308';
-    if (completion >= 40) return '#f97316';
+  const getStageColor = (progress) => {
+    if (progress >= 80) return '#22c55e';
+    if (progress >= 60) return '#eab308';
+    if (progress >= 40) return '#f97316';
     return '#ef4444';
   };
 
@@ -343,42 +343,57 @@ const PlotAnalyzer = () => {
 
           <div className="plot-stages">
             <h4>Story Stages:</h4>
-            {analysis.stages?.map((stage, index) => (
-              <div key={index} className="stage-item">
-                <div className="stage-header">
-                  <span className="stage-name">{stage.name}</span>
-                  <span 
-                    className="stage-completion"
-                    style={{ color: getStageColor(stage.completion) }}
-                  >
-                    {stage.completion}% Complete
-                  </span>
-                </div>
-                
-                <div className="stage-progress">
-                  <div 
-                    className="progress-bar"
-                    style={{ 
-                      width: `${stage.completion}%`,
-                      backgroundColor: getStageColor(stage.completion)
-                    }}
-                  ></div>
-                </div>
-                
-                <p className="stage-description">{stage.description}</p>
-                
-                {stage.suggestions && (
-                  <div className="stage-suggestions">
-                    <strong>Suggestions:</strong>
-                    <ul>
-                      {stage.suggestions.map((suggestion, idx) => (
-                        <li key={idx}>{suggestion}</li>
-                      ))}
-                    </ul>
+            {analysis.stages?.map((stage, index) => {
+              const progress = typeof stage.progressPercent === 'number'
+                ? stage.progressPercent
+                : typeof stage.completion === 'number'
+                ? stage.completion
+                : 0;
+              const notes = stage.notes || stage.description || '';
+              const suggestions = Array.isArray(stage.suggestions) && stage.suggestions.length
+                ? stage.suggestions
+                : Array.isArray(stage.keyBeats)
+                ? stage.keyBeats
+                : [];
+
+              return (
+                <div key={index} className="stage-item">
+                  <div className="stage-header">
+                    <span className="stage-name">{stage.name}</span>
+                    <span 
+                      className="stage-completion"
+                      style={{ color: getStageColor(progress) }}
+                    >
+                      {progress}% Complete
+                    </span>
                   </div>
-                )}
-              </div>
-            ))}
+
+                  <div className="stage-progress">
+                    <div 
+                      className="progress-bar"
+                      style={{ 
+                        width: `${progress}%`,
+                        backgroundColor: getStageColor(progress)
+                      }}
+                    ></div>
+                  </div>
+
+                  {stage.focus && <p className="stage-focus"><strong>Focus:</strong> {stage.focus}</p>}
+                  {notes && <p className="stage-description">{notes}</p>}
+
+                  {suggestions.length > 0 && (
+                    <div className="stage-suggestions">
+                      <strong>{stage.suggestions ? 'Suggestions' : 'Key Beats'}:</strong>
+                      <ul>
+                        {suggestions.map((suggestion, idx) => (
+                          <li key={idx}>{suggestion}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
 
           <div className="plot-insights">

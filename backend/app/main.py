@@ -801,9 +801,10 @@ def default_plot_analysis() -> Dict[str, Any]:
         "stages": [
             {
                 "name": "Structure Analysis",
-                "completion": 75,
-                "description": "Plot structure analyzed successfully",
-                "suggestions": ["Continue developing your story structure"],
+                "progressPercent": 75,
+                "focus": "Assess overall pacing and turn key moments",
+                "notes": "Plot structure analyzed successfully",
+                "keyBeats": ["Inciting incident", "Climax"],
             }
         ],
         "pacing": "Pacing analysis completed",
