@@ -63,7 +63,7 @@ const PlotAnalyzer = () => {
     );
   }, [plotText, plotType, analysis, chapterSuggestions, actionPrompt, promptPreview, responsePreview, storageKey]);
 
-  const resetAnalysis = useCallback((keepPreviews = false) => {
+  const resetAnalysis = useCallback((keepPreviews = false, clearCache = false) => {
     setAnalysis(null);
     setChapterSuggestions([]);
     if (!keepPreviews) {
@@ -71,10 +71,17 @@ const PlotAnalyzer = () => {
       setResponsePreview('');
     }
     setStatus('');
-  }, []);
+    if (clearCache) {
+      try {
+        localStorage.removeItem(storageKey);
+      } catch (err) {
+        console.warn('Failed to clear cached plot analysis', err);
+      }
+    }
+  }, [storageKey]);
 
   useEffect(() => {
-    resetAnalysis();
+    resetAnalysis(false, true);
     setAppliedDirectives('');
   }, [plotType, resetAnalysis]);
 
@@ -83,7 +90,7 @@ const PlotAnalyzer = () => {
 
     setLoading(true);
     setError('');
-    resetAnalysis();
+    resetAnalysis(false, true);
     setAppliedDirectives(actionPrompt.trim() ? actionPrompt : '');
     
     try {
