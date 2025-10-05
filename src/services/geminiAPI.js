@@ -562,6 +562,125 @@ class GeminiService {
     }
   }
 
+  async generateChapterDraft({ chapterTitle, outline, scenes, directives }) {
+    if (!Array.isArray(scenes) || scenes.length === 0) {
+      throw new Error('At least one scene is required to compose a chapter draft.');
+    }
+
+    if (this.usingBackend) {
+      return await this.requestBackend('/api/chapter/draft', {
+        chapterTitle,
+        outline,
+        scenes: scenes.map((scene, index) => ({
+          title: scene.title || `Scene ${index + 1}`,
+          type: scene.type || scene.sceneType || 'general',
+          text: scene.text || '',
+          notes: scene.notes || '',
+        })),
+        directives,
+      });
+    }
+
+    const fallbackDraft = {
+      title: chapterTitle,
+      summary: outline || 'Draft generated from available scenes.',
+      sections: scenes.map((scene, index) => ({
+        heading: scene.title || `Scene ${index + 1}`,
+        objective: scene.notes || '',
+        beats: [],
+        text: (scene.text && scene.text.trim()) ? [scene.text.trim()] : [],
+      })),
+      styleNotes: directives ? [directives] : [
+        'Draft assembled locally from scene text. Consider refining with the hosted backend for richer output.',
+      ],
+    };
+
+    const fallbackPrompt = `Compose a chapter draft for "${chapterTitle}" using the provided scenes.`;
+    const fallbackPreview = JSON.stringify(fallbackDraft).slice(0, 400);
+
+    return { success: true, draft: fallbackDraft, prompt: fallbackPrompt, responsePreview: fallbackPreview };
+  }
+
+  async generateScenePlan({ chapterTitle, outline, desiredScenes, directives, sceneFocus }) {
+    if (!outline || !outline.trim()) {
+      throw new Error('A chapter outline is required to plan scenes.');
+    }
+
+    if (this.usingBackend) {
+      return await this.requestBackend('/api/scene/plan', {
+        chapterTitle,
+        chapterOutline: outline,
+        desiredScenes,
+        directives,
+        sceneFocus,
+      });
+    }
+
+    const outlineLines = outline.split('\n').map(line => line.trim()).filter(Boolean);
+    const totalScenes = desiredScenes || Math.max(3, Math.min(outlineLines.length, 6));
+    const scenes = Array.from({ length: totalScenes }).map((_, index) => {
+      const snippet = outlineLines[index] || outlineLines[outlineLines.length - 1] || outline;
+      return {
+        title: `${chapterTitle || 'Chapter'} – Scene ${index + 1}`,
+        type: 'general',
+        summary: snippet,
+        purpose: 'Advance the chapter narrative.',
+        beats: [],
+        notes: directives || '',
+        tone: '',
+        length: 'medium',
+        setting: '',
+      };
+    });
+
+    const fallbackPrompt = `Outline ${totalScenes} scenes for chapter "${chapterTitle || 'Untitled'}" based on the provided outline.`;
+    const fallbackPreview = scenes.map(scene => scene.title).join(', ').slice(0, 400);
+
+    return { success: true, scenes, prompt: fallbackPrompt, responsePreview: fallbackPreview };
+  }
+
+  async refineSceneText({ mode = 'expand', sceneTitle, sceneText, chapterTitle, chapterOutline, directives, targetWords }) {
+    if (!sceneText || !sceneText.trim()) {
+      throw new Error('Scene text is required to refine.');
+    }
+
+    if (this.usingBackend) {
+      return await this.requestBackend('/api/scene/refine', {
+        mode,
+        sceneTitle,
+        sceneText,
+        chapterTitle,
+        chapterOutline,
+        directives,
+        targetWords,
+      });
+    }
+
+    const words = sceneText.split(/\s+/).filter(Boolean);
+    let text;
+    if (mode === 'tighten') {
+      const keep = Math.max(1, Math.floor(words.length * 0.75));
+      text = words.slice(0, keep).join(' ');
+    } else {
+      text = `${sceneText}\n\n[Expand this scene with richer detail when connected to the backend.]`;
+    }
+
+    const fallbackPrompt = `${mode === 'tighten' ? 'Tighten' : 'Expand'} the scene "${sceneTitle}".`;
+    const fallbackPreview = text.slice(0, 400);
+
+    return {
+      success: true,
+      scene: {
+        title: sceneTitle,
+        text,
+        beats: [],
+        notes: directives || '',
+      },
+      prompt: fallbackPrompt,
+      responsePreview: fallbackPreview,
+    };
+  }
+
   // NEW: Readability Optimizer
   async analyzeReadability(text, targetAudience) {
     if (this.usingBackend) {

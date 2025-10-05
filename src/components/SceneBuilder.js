@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { geminiService } from '../services/geminiAPI';
 import { storageService } from '../services/storageService';
 import { useProject } from '../context/ProjectContext';
@@ -43,6 +43,7 @@ const SceneBuilder = () => {
   const backendEnabled = storageService.isBackendEnabled();
   const sceneSeedKey = useMemo(() => `scene_builder_seed_${activeProject}`, [activeProject]);
   const storeKey = useMemo(() => `scene_builder_store_${activeProject}`, [activeProject]);
+  const promptStoreKey = useMemo(() => `scene_builder_prompts_${activeProject}`, [activeProject]);
 
   const [sceneStore, setSceneStore] = useState(() => {
     try {
@@ -62,6 +63,20 @@ const SceneBuilder = () => {
   const [showGuidelines, setShowGuidelines] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [composeLoading, setComposeLoading] = useState(false);
+  const [composeMessage, setComposeMessage] = useState('');
+  const [draftMap, setDraftMap] = useState({});
+  const [manuscriptChapters, setManuscriptChapters] = useState([]);
+  const [chapterPrompts, setChapterPrompts] = useState({});
+  const [actionPrompt, setActionPrompt] = useState('');
+  const [isPromptOpen, setIsPromptOpen] = useState(false);
+  const [planLoading, setPlanLoading] = useState(false);
+  const [planMessage, setPlanMessage] = useState('');
+  const [refineLoading, setRefineLoading] = useState(false);
+  const [refineMessage, setRefineMessage] = useState('');
+  const [promptPreview, setPromptPreview] = useState('');
+  const [responsePreview, setResponsePreview] = useState('');
+  const [previewContext, setPreviewContext] = useState('');
   const seedAppliedRef = useRef(false);
   const persistTimerRef = useRef(null);
   const suppressPersistRef = useRef(false);
@@ -71,6 +86,16 @@ const SceneBuilder = () => {
   const currentChapter = sceneStore.chapters[activeChapterId] || sceneStore.chapters.standalone;
   const currentScenes = currentChapter?.scenes || [];
   const activeScene = currentScenes.find(scene => scene.id === activeSceneId) || currentScenes[0];
+  const scenesWithContent = currentScenes.filter(scene => {
+    const text = scene.text ? scene.text.trim() : '';
+    const notes = scene.notes ? scene.notes.trim() : '';
+    return Boolean(text || notes);
+  });
+  const currentDraft = draftMap[activeChapterId];
+  const isLinkedChapter = Number.isInteger(Number(activeChapterId));
+  const canDraftChapter = scenesWithContent.length > 0 && !composeLoading;
+  const previewWordCount = currentDraft ? countDraftWords(currentDraft, currentDraft.prompt || '') : 0;
+  const appliedPromptText = (currentDraft?.prompt || actionPrompt || '').trim();
 
   useEffect(() => {
     const validIds = new Set(
@@ -143,6 +168,7 @@ const SceneBuilder = () => {
     const applyChapters = (chapters) => {
       if (cancelled || !Array.isArray(chapters)) return;
       suppressPersistRef.current = true;
+      setManuscriptChapters(chapters.map(chapter => ({ ...chapter })));
       setSceneStore(prev => mergeChaptersFromList(prev, chapters));
     };
 
@@ -169,6 +195,67 @@ const SceneBuilder = () => {
       cancelled = true;
     };
   }, [backendEnabled, activeProject]);
+
+  useEffect(() => {
+    setComposeMessage('');
+    setPlanMessage('');
+    setRefineMessage('');
+    setPromptPreview('');
+    setResponsePreview('');
+    setPreviewContext('');
+  }, [activeChapterId]);
+
+  useEffect(() => {
+    setRefineMessage('');
+    setRefineLoading(false);
+  }, [activeSceneId]);
+
+  useEffect(() => {
+    try {
+      const cached = localStorage.getItem(promptStoreKey);
+      if (!cached) return;
+      const parsed = JSON.parse(cached);
+      if (parsed && typeof parsed === 'object') {
+        setChapterPrompts(parsed);
+      }
+    } catch (err) {
+      console.warn('Failed to load scene builder prompts', err);
+    }
+  }, [promptStoreKey]);
+
+  useEffect(() => {
+    const prompt = (chapterPrompts && chapterPrompts[activeChapterId]) || '';
+    setActionPrompt(prompt);
+  }, [activeChapterId, chapterPrompts]);
+
+  useEffect(() => {
+    setChapterPrompts(prev => {
+      const chapters = sceneStore?.chapters ? Object.keys(sceneStore.chapters) : [];
+      const validIds = new Set(chapters);
+      validIds.add('standalone');
+
+      let mutated = false;
+      const next = { ...prev };
+      Object.keys(next).forEach(key => {
+        if (!validIds.has(key)) {
+          delete next[key];
+          mutated = true;
+        }
+      });
+
+      if (!mutated) {
+        return prev;
+      }
+
+      try {
+        localStorage.setItem(promptStoreKey, JSON.stringify(next));
+      } catch (err) {
+        console.warn('Failed to prune scene prompts', err);
+      }
+
+      return next;
+    });
+  }, [sceneStore, promptStoreKey]);
 
   useEffect(() => {
     try {
@@ -256,6 +343,40 @@ const SceneBuilder = () => {
       return updated;
     });
   };
+
+  const handleActionPromptChange = useCallback((value) => {
+    setActionPrompt(value);
+    if (!activeChapterId) {
+      return;
+    }
+
+    setChapterPrompts(prev => {
+      const prevValue = prev[activeChapterId] ?? '';
+      const trimmed = value.trim();
+
+      if (!trimmed && !prevValue) {
+        return prev;
+      }
+
+      const next = { ...prev };
+      if (trimmed) {
+        if (prevValue === value) {
+          return prev;
+        }
+        next[activeChapterId] = value;
+      } else {
+        delete next[activeChapterId];
+      }
+
+      try {
+        localStorage.setItem(promptStoreKey, JSON.stringify(next));
+      } catch (err) {
+        console.warn('Failed to persist scene prompt', err);
+      }
+
+      return next;
+    });
+  }, [activeChapterId, promptStoreKey]);
 
   const selectChapter = (chapterId) => {
     setSceneStore(prev => {
@@ -392,6 +513,292 @@ const SceneBuilder = () => {
     }
   };
 
+  const persistChapterDraft = async (draft, directives = '') => {
+    if (!draft || typeof draft !== 'object') {
+      return 'Draft composed, but nothing to save yet.';
+    }
+
+    if (!isLinkedChapter) {
+      return 'Draft ready. Switch to a manuscript chapter to save it automatically.';
+    }
+
+    const chapterIdNumber = Number(activeChapterId);
+    const safeDraft = normalizeDraftForClient(draft);
+    const promptText = directives ? directives.trim() : '';
+    const htmlContent = buildChapterHtml(safeDraft, promptText);
+    const wordCount = countDraftWords(safeDraft, promptText);
+    const chapterTitle = safeDraft.title?.trim()
+      || currentChapter?.chapterTitle
+      || `Chapter ${chapterIdNumber}`;
+    const outline = currentChapter?.outline || safeDraft.summary || '';
+
+    const baseChapters = Array.isArray(manuscriptChapters) ? manuscriptChapters : [];
+    let updated = false;
+    const nextChapters = baseChapters.map(chapter => {
+      if (Number(chapter.id) === chapterIdNumber) {
+        updated = true;
+        return {
+          ...chapter,
+          title: chapterTitle,
+          outline,
+          content: htmlContent,
+          wordCount,
+        };
+      }
+      return chapter;
+    });
+
+    if (!updated) {
+      nextChapters.push({
+        id: chapterIdNumber,
+        title: chapterTitle,
+        outline,
+        content: htmlContent,
+        wordCount,
+        status: 'draft',
+        createdAt: new Date().toISOString(),
+      });
+    }
+
+    setManuscriptChapters(nextChapters);
+
+    const payload = nextChapters.map(stripChapterForPersistence);
+
+    if (backendEnabled) {
+      const saved = await storageService.saveManuscript(payload, activeProject);
+      if (saved?.chapters) {
+        setManuscriptChapters(saved.chapters.map(chapter => ({ ...chapter })));
+      }
+    } else {
+      const key = `manuscript_chapters_${activeProject}`;
+      localStorage.setItem(key, JSON.stringify(payload));
+    }
+
+    setSceneStore(prev => {
+      const chapter = prev.chapters[activeChapterId];
+      if (!chapter) return prev;
+      if (chapter.chapterTitle === chapterTitle && chapter.outline === outline) {
+        return prev;
+      }
+      return {
+        ...prev,
+        chapters: {
+          ...prev.chapters,
+          [activeChapterId]: {
+            ...chapter,
+            chapterTitle,
+            outline,
+          },
+        },
+      };
+    });
+
+    return promptText ? 'Chapter draft saved to Manuscript Manager with action prompt.' : 'Chapter draft saved to Manuscript Manager.';
+  };
+
+  const planScenesFromOutline = async () => {
+    if (!currentChapter?.outline?.trim()) {
+      setError('Add a chapter outline before generating scene plans.');
+      return;
+    }
+
+    if (planLoading) return;
+
+    const hasContent = currentScenes.some(scene => (scene.text && scene.text.trim()) || (scene.notes && scene.notes.trim()));
+    if (hasContent) {
+      const confirmReplace = window.confirm('Replace existing scenes with a new scene plan? This will overwrite current scene drafts.');
+      if (!confirmReplace) {
+        return;
+      }
+    }
+
+    setPlanLoading(true);
+    setPlanMessage('');
+    setError('');
+
+    try {
+      const response = await geminiService.generateScenePlan({
+        chapterTitle: currentChapter?.chapterTitle || (isLinkedChapter ? `Chapter ${activeChapterId}` : 'Standalone Scenes'),
+        outline: currentChapter.outline,
+        desiredScenes: currentScenes.length || undefined,
+        directives: actionPrompt,
+      });
+
+      const scenes = Array.isArray(response?.scenes) ? response.scenes : [];
+      if (!response?.success || !scenes.length) {
+        throw new Error('No scenes were returned from the planner.');
+      }
+
+      setPromptPreview(response.prompt || response.promptPreview || '');
+      setResponsePreview(response.responsePreview || '');
+      setPreviewContext('Scene Plan');
+
+      const plannedScenes = scenes.map((scene, index) => {
+        const beats = Array.isArray(scene.beats) ? scene.beats : [];
+        const beatsBlock = beats.length ? `Beats:\n${beats.map(beat => `- ${beat}`).join('\n')}` : '';
+        const baseText = scene.text && scene.text.trim()
+          ? scene.text.trim()
+          : [scene.summary, beatsBlock].filter(Boolean).join('\n\n');
+
+        const noteParts = [
+          scene.purpose && `Purpose: ${scene.purpose}`,
+          scene.tone && `Tone: ${scene.tone}`,
+          scene.length && `Suggested Length: ${scene.length}`,
+          scene.setting && `Setting: ${scene.setting}`,
+          scene.notes,
+        ].filter(Boolean);
+
+        return {
+          id: null,
+          title: scene.title || `Scene ${index + 1}`,
+          type: mapSceneType(scene.type),
+          text: baseText,
+          notes: noteParts.join('\n'),
+          metadata: {
+            summary: scene.summary || '',
+            purpose: scene.purpose || '',
+            beats,
+            tone: scene.tone || '',
+            length: scene.length || '',
+            setting: scene.setting || '',
+            plannedAt: new Date().toISOString(),
+          },
+        };
+      });
+
+      const reindexed = reindexScenes(currentChapter?.chapterTitle, plannedScenes);
+
+      setSceneStore(prev => {
+        const chapter = prev.chapters[activeChapterId] || { chapterTitle: 'Untitled Chapter', outline: '', scenes: [] };
+        return {
+          ...prev,
+          chapters: {
+            ...prev.chapters,
+            [activeChapterId]: {
+              ...chapter,
+              scenes: reindexed,
+            },
+          },
+          currentSceneId: reindexed[0]?.id || prev.currentSceneId,
+        };
+      });
+
+      setAnalysisMap(prev => {
+        const next = { ...prev };
+        currentScenes.forEach(scene => {
+          if (scene?.id) {
+            delete next[scene.id];
+          }
+        });
+        return next;
+      });
+
+      setPlanMessage('Scene plan generated from chapter outline.');
+    } catch (err) {
+      setError('Failed to generate scene plan: ' + err.message);
+    } finally {
+      setPlanLoading(false);
+    }
+  };
+
+  const refineScene = async (mode) => {
+    if (!activeScene?.text.trim()) {
+      setError('Add scene text before refining.');
+      return;
+    }
+
+    setRefineLoading(true);
+    setRefineMessage('');
+    setError('');
+
+    try {
+      const response = await geminiService.refineSceneText({
+        mode,
+        sceneTitle: activeScene.title,
+        sceneText: activeScene.text,
+        chapterTitle: currentChapter?.chapterTitle || '',
+        chapterOutline: currentChapter?.outline || '',
+        directives: actionPrompt,
+      });
+
+      const refined = response?.scene;
+      if (!response?.success || !refined?.text) {
+        throw new Error('No refined scene returned.');
+      }
+
+      updateScene(activeScene.id, {
+        title: refined.title || activeScene.title,
+        text: refined.text,
+        notes: refined.notes ? `${refined.notes}${activeScene.notes ? `\n\n${activeScene.notes}` : ''}` : activeScene.notes,
+        metadata: {
+          ...(activeScene.metadata || {}),
+          beats: Array.isArray(refined.beats) && refined.beats.length ? refined.beats : activeScene.metadata?.beats,
+          lastRefinedAt: new Date().toISOString(),
+          refineMode: mode,
+        },
+      });
+
+      setRefineMessage(mode === 'tighten' ? 'Scene tightened successfully.' : 'Scene expanded successfully.');
+      setPromptPreview(response.prompt || response.promptPreview || '');
+      setResponsePreview(response.responsePreview || '');
+      setPreviewContext(mode === 'tighten' ? 'Tighten Scene' : 'Expand Scene');
+    } catch (err) {
+      setError('Failed to refine scene: ' + err.message);
+    } finally {
+      setRefineLoading(false);
+    }
+  };
+
+  const generateChapterDraft = async () => {
+    if (!scenesWithContent.length) {
+      setError('Add scene text or notes before drafting the chapter.');
+      return;
+    }
+
+    setComposeLoading(true);
+    setComposeMessage('');
+    setError('');
+
+    try {
+      const promptText = actionPrompt.trim();
+      const response = await geminiService.generateChapterDraft({
+        chapterTitle: currentChapter?.chapterTitle || (isLinkedChapter ? `Chapter ${activeChapterId}` : 'Standalone Scene Compilation'),
+        outline: currentChapter?.outline || '',
+        scenes: scenesWithContent.map(scene => ({
+          title: scene.title,
+          type: scene.type,
+          text: scene.text,
+          notes: scene.notes,
+        })),
+        directives: promptText,
+      });
+
+      if (!response?.success || !response.draft) {
+        throw new Error('No draft returned from service');
+      }
+
+      const sanitizedDraft = normalizeDraftForClient(response.draft);
+      setDraftMap(prev => ({
+        ...prev,
+        [activeChapterId]: {
+          ...sanitizedDraft,
+          savedAt: new Date().toISOString(),
+          prompt: promptText,
+        },
+      }));
+
+      const message = await persistChapterDraft(sanitizedDraft, promptText);
+      setComposeMessage(promptText ? `${message} Prompt applied.` : message);
+      setPromptPreview(response.prompt || response.promptPreview || '');
+      setResponsePreview(response.responsePreview || '');
+      setPreviewContext('Chapter Draft');
+    } catch (err) {
+      setError('Failed to compose chapter: ' + err.message);
+    } finally {
+      setComposeLoading(false);
+    }
+  };
+
   const analysis = activeScene ? analysisMap[activeScene.id] : null;
 
   const getRatingColor = (rating) => {
@@ -410,38 +817,44 @@ const SceneBuilder = () => {
 
   return (
     <div className="component scene-builder">
-      <h2>🎪 Interactive Scene Builder</h2>
+      <div className="scene-builder-header">
+        <h2>🎪 Interactive Scene Builder</h2>
+        <select
+          className="scene-chapter-select"
+          value={activeChapterId}
+          onChange={(e) => selectChapter(e.target.value)}
+        >
+          {Object.entries(sceneStore.chapters).map(([id, chapter]) => (
+            <option key={id} value={id}>
+              {chapter.chapterTitle || (Number.isInteger(Number(id)) ? `Chapter ${id}` : 'Standalone Scenes')}
+            </option>
+          ))}
+        </select>
+      </div>
 
       {error && <div className="error-message">{error}</div>}
 
       <div className="scene-builder-tab">
-          <div className="scene-header">
-            <div>
-              <h3>{currentChapter?.chapterTitle || 'Scenes'}</h3>
-              {currentChapter?.outline && <p className="chapter-outline-sm">{currentChapter.outline}</p>}
+            <div className="scene-header">
+              <div>
+                <h3>{currentChapter?.chapterTitle || 'Scenes'}</h3>
+                {currentChapter?.outline && <p className="chapter-outline-sm">{currentChapter.outline}</p>}
+              </div>
+              <div className="scene-header-actions">
+                <div className="scene-header-spacer" />
+                <div className="scene-primary-actions">
+                  <button
+                    type="button"
+                    className="button secondary"
+                    onClick={planScenesFromOutline}
+                    disabled={planLoading || !currentChapter?.outline?.trim()}
+                  >
+                    {planLoading ? 'Planning Scenes...' : 'Plan Scenes'}
+                  </button>
+                  <button className="button secondary" onClick={addScene}>Add Scene</button>
+                </div>
+              </div>
             </div>
-            <div className="scene-header-actions">
-              <select
-                className="scene-type-select"
-                value={activeChapterId}
-                onChange={(e) => selectChapter(e.target.value)}
-              >
-                {Object.entries(sceneStore.chapters).map(([id, chapter]) => (
-                  <option key={id} value={id}>
-                    {chapter.chapterTitle || (Number.isInteger(Number(id)) ? `Chapter ${id}` : 'Standalone Scenes')}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                className="button tertiary"
-                onClick={() => setShowGuidelines(prev => !prev)}
-              >
-                {showGuidelines ? 'Hide Guidelines' : 'Show Guidelines'}
-              </button>
-              <button className="button secondary" onClick={addScene}>Add Scene</button>
-            </div>
-          </div>
 
           <div className="scene-layout">
             <aside className="scene-list">
@@ -467,29 +880,26 @@ const SceneBuilder = () => {
             <div className="scene-editor">
               {activeScene ? (
                 <>
-                  <div className="scene-editor-toolbar">
-                    <input
-                      type="text"
-                      value={activeScene.title}
-                      onChange={(e) => updateScene(activeScene.id, { title: e.target.value })}
-                      className="scene-title-input"
-                      placeholder="Scene title"
-                    />
-                    <div className="toolbar-actions">
-                      <select
-                        value={activeScene.type}
-                        onChange={(e) => updateScene(activeScene.id, { type: e.target.value })}
-                        className="scene-type-select"
-                      >
-                        {sceneTypes.map(type => (
-                          <option key={type.value} value={type.value}>{type.label}</option>
-                        ))}
-                      </select>
-                      <button className="button tertiary" onClick={() => removeScene(activeScene.id)}>
-                        Remove Scene
-                      </button>
-                    </div>
-                  </div>
+              <div className="scene-editor-toolbar">
+                <input
+                  type="text"
+                  value={activeScene.title}
+                  onChange={(e) => updateScene(activeScene.id, { title: e.target.value })}
+                  className="scene-title-input"
+                  placeholder="Scene title"
+                />
+                <div className="toolbar-actions">
+                  <select
+                    value={activeScene.type}
+                    onChange={(e) => updateScene(activeScene.id, { type: e.target.value })}
+                    className="scene-type-select"
+                  >
+                    {sceneTypes.map(type => (
+                      <option key={type.value} value={type.value}>{type.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
 
                   {showGuidelines && (
                     <details className="scene-guidelines" open>
@@ -503,6 +913,7 @@ const SceneBuilder = () => {
                     onChange={(e) => updateScene(activeScene.id, { text: e.target.value })}
                     className="scene-textarea"
                     placeholder="Draft the scene..."
+                    spellCheck={false}
                   />
 
                   <textarea
@@ -510,18 +921,48 @@ const SceneBuilder = () => {
                     onChange={(e) => updateScene(activeScene.id, { notes: e.target.value })}
                     className="scene-notes"
                     placeholder="Notes, beats, or reminders..."
+                    spellCheck={false}
                   />
 
                   <div className="scene-footer">
                     <span className="word-count">📊 {activeScene.text.split(' ').filter(Boolean).length} words</span>
-                    <button
-                      onClick={analyzeScene}
-                      disabled={loading || !activeScene.text.trim()}
-                      className="button"
-                    >
-                      {loading ? '🔄 Analyzing Scene...' : '⚡ Analyze Conflict & Tension'}
-                    </button>
+                    <div className="scene-footer-actions">
+                      <button
+                        onClick={analyzeScene}
+                        disabled={loading || !activeScene.text.trim()}
+                        className="button"
+                      >
+                        {loading ? '🔄 Analyzing Scene...' : '⚡ Analyze Conflict & Tension'}
+                      </button>
+                      <button
+                        type="button"
+                        className="button secondary"
+                        onClick={() => refineScene('expand')}
+                        disabled={refineLoading || !activeScene.text.trim()}
+                      >
+                        {refineLoading ? 'Refining…' : 'Expand Scene'}
+                      </button>
+                      <button
+                        type="button"
+                        className="button tertiary"
+                        onClick={() => refineScene('tighten')}
+                        disabled={refineLoading || !activeScene.text.trim()}
+                      >
+                        {refineLoading ? 'Refining…' : 'Tighten Scene'}
+                      </button>
+                      <button
+                        type="button"
+                        className="button tertiary"
+                        onClick={() => setShowGuidelines(prev => !prev)}
+                      >
+                        {showGuidelines ? 'Hide Guidelines' : 'Show Guidelines'}
+                      </button>
+                      <button className="button tertiary" onClick={() => removeScene(activeScene.id)}>
+                        Remove Scene
+                      </button>
+                    </div>
                   </div>
+                  {refineMessage && <p className="scene-refine-message">{refineMessage}</p>}
                 </>
               ) : (
                 <div className="scene-empty-state">
@@ -529,10 +970,134 @@ const SceneBuilder = () => {
                   <button className="button" onClick={addScene}>Add Scene</button>
                 </div>
               )}
-            </div>
           </div>
         </div>
+
+        <div className="chapter-draft-panel">
+          <div className="draft-panel-header">
+            <div>
+              <h3>📝 Chapter Draft Composer</h3>
+              <p className="draft-panel-subtitle">
+                Combine every scene in this chapter into a cohesive manuscript draft.
+              </p>
+            </div>
+            <button
+              className="button"
+              onClick={generateChapterDraft}
+              disabled={!canDraftChapter}
+            >
+              {composeLoading ? 'Crafting Chapter...' : 'Generate Chapter Draft'}
+            </button>
+          </div>
+
+          {!scenesWithContent.length && (
+            <p className="draft-hint">Add scene text or notes before composing the chapter.</p>
+          )}
+
+          {!isLinkedChapter && (
+            <div className="info-banner">
+              Drafts from standalone scenes are preview-only. Switch to a manuscript chapter to save results automatically.
+            </div>
+          )}
+
+          {composeMessage && <div className="status-message">{composeMessage}</div>}
+
+          {planMessage && <div className="status-message subtle">{planMessage}</div>}
+
+          {appliedPromptText && (
+            <p className="draft-hint">Action Prompt: {appliedPromptText}</p>
+          )}
+
+          {currentDraft && (
+            <div className="draft-preview">
+              <div className="draft-preview-header">
+                <h4>{currentDraft.title || currentChapter?.chapterTitle || 'Chapter Draft'}</h4>
+                <span className="draft-word-count">{previewWordCount.toLocaleString()} words</span>
+              </div>
+              {currentDraft.summary && (
+                <p className="draft-summary">{currentDraft.summary}</p>
+              )}
+              {Array.isArray(currentDraft.sections) && currentDraft.sections.map((section, index) => (
+                <div key={index} className="draft-section">
+                  {section.heading && <h5>{section.heading}</h5>}
+                  {section.objective && <p className="draft-objective"><em>{section.objective}</em></p>}
+                  {Array.isArray(section.text) && section.text.map((paragraph, idx) => (
+                    <p key={idx}>{paragraph}</p>
+                  ))}
+                  {Array.isArray(section.beats) && section.beats.length > 0 && (
+                    <ul className="draft-beats">
+                      {section.beats.map((beat, beatIdx) => (
+                        <li key={beatIdx}>{beat}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ))}
+              {Array.isArray(currentDraft.styleNotes) && currentDraft.styleNotes.length > 0 && (
+                <div className="draft-style-notes">
+                  <strong>Style Notes</strong>
+                  <ul>
+                    {currentDraft.styleNotes.map((note, idx) => (
+                      <li key={idx}>{note}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+      {(promptPreview || responsePreview) && (
+        <details className="prompt-preview">
+          <summary>Prompt Debug{previewContext ? ` — ${previewContext}` : ''}</summary>
+          <div className="prompt-preview-body">
+            {promptPreview && (
+              <>
+                <h5>Prompt</h5>
+                <pre>{promptPreview}</pre>
+              </>
+            )}
+            {responsePreview && (
+              <>
+                <h5>Response Preview</h5>
+                <pre>{responsePreview}</pre>
+              </>
+            )}
+          </div>
+        </details>
       )}
+
+      <div className={`action-prompt-drawer ${isPromptOpen ? 'open' : ''}`}>
+        <button
+          type="button"
+          className="prompt-toggle"
+          onClick={() => setIsPromptOpen(prev => !prev)}
+          aria-expanded={isPromptOpen}
+        >
+          {isPromptOpen ? 'Close Action Prompt' : 'Open Action Prompt'}
+        </button>
+        {isPromptOpen && (
+          <div className="prompt-content">
+            <label htmlFor="chapter-action-prompt">Chapter Draft Prompt</label>
+            <textarea
+              id="chapter-action-prompt"
+              value={actionPrompt}
+              onChange={(e) => handleActionPromptChange(e.target.value)}
+              placeholder="Add extra guidance for chapter drafting (e.g., emphasize emotional beats)."
+            />
+            <div className="prompt-actions">
+              <button
+                type="button"
+                className="button tertiary"
+                onClick={() => handleActionPromptChange('')}
+              >
+                Clear Prompt
+              </button>
+              <span className="prompt-hint">Applied to chapter drafting for the selected chapter.</span>
+            </div>
+          </div>
+        )}
+      </div>
 
       {analysis && (
         <div className="scene-analysis-tab">
@@ -824,6 +1389,185 @@ function mergeChaptersFromList(store, chapters) {
   updated.currentSceneId = scenes.find(scene => scene.id === updated.currentSceneId)?.id || scenes[0].id;
 
   return updated;
+}
+
+function normalizeDraftForClient(draft) {
+  if (!draft || typeof draft !== 'object') {
+    return { title: '', summary: '', sections: [], styleNotes: [] };
+  }
+
+  const title = typeof draft.title === 'string' ? draft.title : '';
+  const summary = typeof draft.summary === 'string' ? draft.summary : '';
+
+  const sections = Array.isArray(draft.sections)
+    ? draft.sections.map((section, index) => {
+        if (!section || typeof section !== 'object') {
+          return {
+            heading: `Section ${index + 1}`,
+            objective: '',
+            beats: [],
+            text: [],
+          };
+        }
+
+        const heading = typeof section.heading === 'string'
+          ? section.heading
+          : typeof section.title === 'string'
+            ? section.title
+            : `Section ${index + 1}`;
+
+        const objective = typeof section.objective === 'string'
+          ? section.objective
+          : typeof section.purpose === 'string'
+            ? section.purpose
+            : '';
+
+        const beatsSource = section.beats || section.keyBeats || [];
+        let beats = [];
+        if (Array.isArray(beatsSource)) {
+          beats = beatsSource
+            .map(item => (typeof item === 'string' ? item : String(item || '')).trim())
+            .filter(Boolean);
+        } else if (typeof beatsSource === 'string' && beatsSource.trim()) {
+          beats = [beatsSource.trim()];
+        }
+
+        const textSource = section.text || section.draftParagraphs || [];
+        let textBlocks = [];
+        if (Array.isArray(textSource)) {
+          textBlocks = textSource
+            .map(item => (typeof item === 'string' ? item : String(item || '')).trim())
+            .filter(Boolean);
+        } else if (typeof textSource === 'string' && textSource.trim()) {
+          textBlocks = [textSource.trim()];
+        }
+
+        return {
+          heading,
+          objective,
+          beats,
+          text: textBlocks,
+        };
+      })
+    : [];
+
+  let styleNotesRaw = draft.styleNotes ?? draft.notes ?? draft.reminders ?? [];
+  if (typeof styleNotesRaw === 'string') {
+    styleNotesRaw = styleNotesRaw.trim() ? [styleNotesRaw.trim()] : [];
+  }
+  const styleNotes = Array.isArray(styleNotesRaw)
+    ? styleNotesRaw
+        .map(item => (typeof item === 'string' ? item : String(item || '')).trim())
+        .filter(Boolean)
+    : [];
+
+  return { title, summary, sections, styleNotes };
+}
+
+function buildChapterHtml(draft, prompt = '') {
+  const parts = [];
+
+  if (draft.summary) {
+    parts.push(`<p><strong>Chapter Summary:</strong> ${escapeHtml(draft.summary)}</p>`);
+  }
+
+  draft.sections.forEach(section => {
+    const segment = [];
+    if (section.heading) {
+      segment.push(`<h3>${escapeHtml(section.heading)}</h3>`);
+    }
+    if (section.objective) {
+      segment.push(`<p><em>${escapeHtml(section.objective)}</em></p>`);
+    }
+    if (section.beats && section.beats.length) {
+      const beatItems = section.beats.map(item => `<li>${escapeHtml(item)}</li>`).join('');
+      segment.push(`<ul>${beatItems}</ul>`);
+    }
+    if (section.text && section.text.length) {
+      section.text.forEach(paragraph => {
+        segment.push(`<p>${escapeHtml(paragraph)}</p>`);
+      });
+    }
+    if (segment.length) {
+      parts.push(segment.join(''));
+    }
+  });
+
+  if (draft.styleNotes && draft.styleNotes.length) {
+    const noteItems = draft.styleNotes.map(item => `<li>${escapeHtml(item)}</li>`).join('');
+    parts.push(`<p><strong>Style Notes</strong></p><ul>${noteItems}</ul>`);
+  }
+
+  const trimmedPrompt = prompt.trim();
+  if (trimmedPrompt) {
+    parts.push(`<p><strong>Action Prompt:</strong> ${escapeHtml(trimmedPrompt)}</p>`);
+  }
+
+  if (!parts.length && draft.summary) {
+    return `<p>${escapeHtml(draft.summary)}</p>`;
+  }
+
+  return parts.join('');
+}
+
+function countDraftWords(draft, prompt = '') {
+  const sectionText = Array.isArray(draft.sections)
+    ? draft.sections.flatMap(section =>
+        Array.isArray(section.text)
+          ? section.text
+          : typeof section.text === 'string'
+            ? [section.text]
+            : []
+      )
+    : [];
+  const combined = [draft.summary || '', ...sectionText, prompt || ''].join(' ');
+  return combined.split(/\s+/).filter(Boolean).length;
+}
+
+function stripChapterForPersistence(chapter) {
+  return {
+    id: chapter.id,
+    title: chapter.title,
+    outline: chapter.outline || '',
+    content: chapter.content || '',
+    wordCount: chapter.wordCount || 0,
+    status: chapter.status || 'draft',
+    createdAt: chapter.createdAt,
+  };
+}
+
+function escapeHtml(value) {
+  if (!value) return '';
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function mapSceneType(rawType) {
+  if (!rawType) {
+    return 'dialogue';
+  }
+  const normalized = rawType.toString().toLowerCase();
+  if (sceneTypes.some(type => type.value === normalized)) {
+    return normalized;
+  }
+
+  const aliases = {
+    general: 'dialogue',
+    conversation: 'dialogue',
+    emotional: 'emotional',
+    exposition: 'exposition',
+    action: 'action',
+    setpiece: 'action',
+    battle: 'action',
+    transition: 'transition',
+    climax: 'climax',
+  };
+
+  return aliases[normalized] || 'dialogue';
 }
 
 function renderRichText(entry) {

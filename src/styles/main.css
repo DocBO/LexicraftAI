@@ -1162,6 +1162,22 @@ body {
   max-width: 1400px;
 }
 
+.scene-builder-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.scene-chapter-select {
+  min-width: 220px;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  font-size: 0.95rem;
+}
+
 .scene-tabs,
 .readability-tabs {
   display: flex;
@@ -1266,6 +1282,37 @@ body {
 .scene-header-actions {
   display: flex;
   gap: 0.75rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.scene-header-spacer {
+  flex: 1;
+}
+
+.scene-primary-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.scene-footer-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.scene-refine-message {
+  margin: 0.5rem 0 0;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.status-message.subtle {
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
 }
 
 .scene-layout {
@@ -1312,10 +1359,13 @@ body {
 
 .scene-card-type {
   font-size: 0.75rem;
-  padding: 0.2rem 0.5rem;
+  padding: 0.2rem 0.65rem;
   border-radius: 999px;
   background: var(--accent-secondary);
   color: var(--text-on-accent);
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
 }
 
 .scene-card-preview {
@@ -1363,30 +1413,6 @@ body {
   color: var(--text-primary);
 }
 
-.scene-textarea {
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  padding: 1rem;
-  font-family: 'Georgia', serif;
-  font-size: 1rem;
-  line-height: 1.7;
-  resize: vertical;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  min-height: 220px;
-}
-
-.scene-notes {
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  padding: 0.75rem 1rem;
-  font-size: 0.95rem;
-  line-height: 1.5;
-  resize: vertical;
-  min-height: 120px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-}
 
 .scene-analysis-panel {
   background: var(--bg-secondary);
@@ -3813,7 +3839,7 @@ body {
   resize: vertical;
   background: var(--bg-primary);
   color: var(--text-primary);
-  min-height: 220px;
+  min-height: 330px;
 }
 
 .scene-notes {
@@ -3823,7 +3849,7 @@ body {
   font-size: 0.95rem;
   line-height: 1.5;
   resize: vertical;
-  min-height: 120px;
+  min-height: 180px;
   background: var(--bg-primary);
   color: var(--text-primary);
 }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import { geminiService } from '../services/geminiAPI';
@@ -44,6 +44,7 @@ const ManuscriptManager = () => {
 
   const sceneSeedKey = useMemo(() => `scene_builder_seed_${activeProject}`, [activeProject]);
   const sceneStoreKey = useMemo(() => `scene_builder_store_${activeProject}`, [activeProject]);
+  const composeEditorRef = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -92,6 +93,22 @@ const ManuscriptManager = () => {
       cancelled = true;
     };
   }, [storageEnabled, activeProject]);
+
+  useEffect(() => {
+    const disableSpellcheck = (ref) => {
+      const instance = ref?.current;
+      if (!instance || typeof instance.getEditor !== 'function') return;
+      const editor = instance.getEditor();
+      if (!editor || !editor.root) return;
+      editor.root.setAttribute('spellcheck', 'false');
+      editor.root.setAttribute('autocorrect', 'off');
+      editor.root.setAttribute('autocapitalize', 'off');
+      editor.root.setAttribute('data-gramm', 'false');
+    };
+
+    const timer = setTimeout(() => disableSpellcheck(composeEditorRef), 0);
+    return () => clearTimeout(timer);
+  }, []);
 
   const persistChapters = async (nextChapters) => {
     setChapters(nextChapters);
@@ -415,6 +432,8 @@ const ManuscriptManager = () => {
           className="chapter-content-input"
           modules={modules}
           formats={formats}
+          spellCheck={false}
+          ref={composeEditorRef}
         />
         
         <div className="chapter-input-footer">
@@ -616,6 +635,23 @@ const ChapterEditor = ({ chapter, onSave, onCancel }) => {
   const [outline, setOutline] = useState(chapter.outline || '');
   const [content, setContent] = useState(chapter.content);
   const [status, setStatus] = useState(chapter.status);
+  const editorRef = useRef(null);
+
+  useEffect(() => {
+    const disableSpellcheck = () => {
+      const instance = editorRef.current;
+      if (!instance || typeof instance.getEditor !== 'function') return;
+      const editor = instance.getEditor();
+      if (!editor || !editor.root) return;
+      editor.root.setAttribute('spellcheck', 'false');
+      editor.root.setAttribute('autocorrect', 'off');
+      editor.root.setAttribute('autocapitalize', 'off');
+      editor.root.setAttribute('data-gramm', 'false');
+    };
+
+    const timer = setTimeout(disableSpellcheck, 0);
+    return () => clearTimeout(timer);
+  }, []);
 
   const handleSave = () => {
     onSave({ title, outline, content, status });
@@ -654,6 +690,8 @@ const ChapterEditor = ({ chapter, onSave, onCancel }) => {
         className="chapter-content-input"
         modules={modules}
         formats={formats}
+        spellCheck={false}
+        ref={editorRef}
       />
       
       <div className="editor-actions">

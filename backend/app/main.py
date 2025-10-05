@@ -5,7 +5,7 @@ import logging
 import random
 import re
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Literal
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
@@ -91,6 +91,38 @@ class ManuscriptAnalysisRequest(BaseModel):
 class SceneAnalysisRequest(BaseModel):
     sceneText: str = Field(..., min_length=1)
     sceneType: Optional[str] = None
+
+
+class SceneInput(BaseModel):
+    title: str = Field(default="Scene")
+    type: Optional[str] = None
+    text: str = Field(default="")
+    notes: Optional[str] = None
+
+
+class ChapterDraftRequest(BaseModel):
+    chapterTitle: str = Field(..., min_length=1)
+    outline: Optional[str] = ""
+    scenes: List[SceneInput] = Field(default_factory=list)
+    directives: Optional[str] = None
+
+
+class ScenePlanRequest(BaseModel):
+    chapterTitle: str = Field(..., min_length=1)
+    chapterOutline: str = Field(..., min_length=1)
+    desiredScenes: Optional[int] = Field(default=None, ge=1, le=20)
+    sceneFocus: Optional[str] = None
+    directives: Optional[str] = None
+
+
+class SceneRefineRequest(BaseModel):
+    sceneTitle: str = Field(..., min_length=1)
+    sceneText: str = Field(..., min_length=1)
+    chapterTitle: Optional[str] = None
+    chapterOutline: Optional[str] = None
+    mode: Literal["expand", "tighten"] = Field(default="expand")
+    directives: Optional[str] = None
+    targetWords: Optional[int] = Field(default=None, ge=50, le=2000)
 
 
 class ReadabilityRequest(BaseModel):
@@ -369,6 +401,63 @@ def create_app() -> FastAPI:
             analysis = default_scene_analysis()
         return {"success": True, "analysis": analysis}
 
+    @app.post("/api/scene/plan")
+    async def scene_plan(payload: ScenePlanRequest) -> Dict[str, Any]:
+        prompt = build_scene_plan_prompt(payload)
+        plan_text = await run_generation(prompt, temperature=0.55)
+        plan = coerce_json(plan_text)
+        scenes = normalize_scene_plan(plan, payload)
+        if not scenes:
+            scenes = default_scene_plan(payload)
+        preview = plan_text[:400] if isinstance(plan_text, str) else ""
+        return {
+            "success": True,
+            "scenes": scenes,
+            "prompt": prompt,
+            "promptPreview": prompt,
+            "responsePreview": preview,
+        }
+
+    @app.post("/api/scene/refine")
+    async def scene_refine(payload: SceneRefineRequest) -> Dict[str, Any]:
+        prompt = build_scene_refine_prompt(payload)
+        refined_text = await run_generation(prompt, temperature=0.5)
+        refined = coerce_json(refined_text)
+        normalized = normalize_refined_scene(refined, payload)
+        if not normalized:
+            normalized = default_refined_scene(payload)
+        preview = refined_text[:400] if isinstance(refined_text, str) else ""
+        return {
+            "success": True,
+            "scene": normalized,
+            "prompt": prompt,
+            "promptPreview": prompt,
+            "responsePreview": preview,
+        }
+
+    @app.post("/api/chapter/draft")
+    async def chapter_draft(payload: ChapterDraftRequest) -> Dict[str, Any]:
+        if not payload.scenes:
+            raise HTTPException(status_code=400, detail="At least one scene is required to draft a chapter")
+
+        prompt = build_chapter_draft_prompt(payload)
+        draft_text = await run_generation(prompt, temperature=0.65)
+        structured = coerce_json(draft_text)
+
+        if not isinstance(structured, dict):
+            draft = default_chapter_draft(payload)
+        else:
+            draft = normalize_chapter_draft(structured, payload)
+        preview = draft_text[:400] if isinstance(draft_text, str) else ""
+
+        return {
+            "success": True,
+            "draft": draft,
+            "prompt": prompt,
+            "promptPreview": prompt,
+            "responsePreview": preview,
+        }
+
     @app.post("/api/readability/analyze")
     async def readability_analyze(payload: ReadabilityRequest) -> Dict[str, Any]:
         prompt = build_readability_prompt(payload)
@@ -636,6 +725,50 @@ def build_manuscript_prompt(payload: ManuscriptAnalysisRequest) -> str:
     )
 
 
+def build_chapter_draft_prompt(payload: ChapterDraftRequest) -> str:
+    outline = payload.outline.strip() if payload.outline else ""
+    directives = payload.directives.strip() if payload.directives else ""
+    scene_payload = []
+    for index, scene in enumerate(payload.scenes, start=1):
+        scene_payload.append(
+            {
+                "number": index,
+                "title": scene.title or f"Scene {index}",
+                "type": scene.type or "general",
+                "notes": (scene.notes or "").strip(),
+                "text": scene.text,
+            }
+        )
+
+    scenes_json = json.dumps(scene_payload, ensure_ascii=False)
+    directive_line = directives or "None"
+    outline_line = outline or "No outline provided."
+
+    return (
+        "You are a collaborative novelist tasked with weaving polished prose from structured scene drafts."
+        " Compose a cohesive chapter that respects the supplied outline, maintains continuity, and preserves key beats.\n\n"
+        f"Chapter Title: {payload.chapterTitle}\n"
+        f"Chapter Outline: {outline_line}\n"
+        f"Additional Directives: {directive_line}\n\n"
+        "Scenes (JSON order reflects narrative progression):\n"
+        f"{scenes_json}\n\n"
+        "Respond with ONLY a valid JSON object (no markdown formatting) following this exact schema:\n"
+        "{\n"
+        "  \"title\": \"Refined chapter title\",\n"
+        "  \"summary\": \"One paragraph highlighting arc, stakes, and emotional flow\",\n"
+        "  \"sections\": [\n"
+        "    {\n"
+        "      \"heading\": \"Section heading describing scene focus\",\n"
+        "      \"objective\": \"What this passage accomplishes\",\n"
+        "      \"beats\": [\"key beat\"],\n"
+        "      \"text\": [\"cohesive paragraph one\", \"cohesive paragraph two\"]\n"
+        "    }\n"
+        "  ],\n"
+        "  \"styleNotes\": [\"Optional reminders or follow-ups\"]\n"
+        "}"
+    )
+
+
 def build_scene_prompt(payload: SceneAnalysisRequest) -> str:
     scene_type = payload.sceneType or "General"
     return (
@@ -660,6 +793,74 @@ def build_scene_prompt(payload: SceneAnalysisRequest) -> str:
         "      \"example\": \"example implementation\"\n"
         "    }\n"
         "  ]\n"
+        "}"
+    )
+
+
+def build_scene_plan_prompt(payload: ScenePlanRequest) -> str:
+    outline = payload.chapterOutline.strip()
+    desired = payload.desiredScenes or 5
+    focus = (payload.sceneFocus or "").strip()
+    focus_line = f"Scene focus guidance: {focus}\n" if focus else ""
+    directives = (payload.directives or "").strip()
+    directives_line = directives if directives else "None"
+
+    return (
+        "You are a narrative designer turning a chapter outline into a sequence of scenes."
+        " Map out coherent scene beats that propel the chapter.\n\n"
+        f"Chapter Title: {payload.chapterTitle}\n"
+        f"Target Scene Count: {desired}\n"
+        f"Chapter Outline:\n{outline}\n\n"
+        f"{focus_line}Additional directives: {directives_line}\n\n"
+        "Respond with ONLY a valid JSON object using this schema (no markdown):\n"
+        "{\n"
+        "  \"scenes\": [\n"
+        "    {\n"
+        "      \"title\": \"Scene title\",\n"
+        "      \"type\": \"dialogue|action|emotional|exposition|set-piece\",\n"
+        "      \"length\": \"short|medium|long\",\n"
+        "      \"summary\": \"One paragraph describing the scene\",\n"
+        "      \"purpose\": \"Narrative purpose or goal\",\n"
+        "      \"beats\": [\"key beat\"],\n"
+        "      \"setting\": \"Where it happens\",\n"
+        "      \"tone\": \"Emotional tone\",\n"
+        "      \"notes\": \"Any production notes or special considerations\"\n"
+        "    }\n"
+        "  ],\n"
+        "  \"overview\": {\n"
+        "    \"actStructure\": \"How scenes flow\",\n"
+        "    \"progression\": \"How stakes escalate\"\n"
+        "  }\n"
+        "}"
+    )
+
+
+def build_scene_refine_prompt(payload: SceneRefineRequest) -> str:
+    outline = (payload.chapterOutline or "").strip()
+    directives = (payload.directives or "").strip()
+    mode = payload.mode.lower()
+    target = payload.targetWords if payload.targetWords else (220 if mode == "expand" else 140)
+    action = "Expand" if mode == "expand" else "Tighten"
+
+    outline_block = f"Chapter Outline: {outline}\n\n" if outline else ""
+    directives_line = directives if directives else "None"
+
+    return (
+        f"{action} the following scene while keeping POV, voice, and continuity intact."
+        " Maintain coherent pacing and ensure the scene still advances the chapter goal."
+        "\n\n"
+        f"Chapter Title: {payload.chapterTitle or 'Untitled Chapter'}\n"
+        f"Scene Title: {payload.sceneTitle}\n"
+        f"Current Scene Words: {len(payload.sceneText.split())}\n"
+        f"Target Word Count: about {target}\n"
+        f"Additional directives: {directives_line}\n\n"
+        f"{outline_block}Current Scene Text:\n{payload.sceneText}\n\n"
+        "Respond with ONLY a valid JSON object in this exact shape:\n"
+        "{\n"
+        "  \"title\": \"Updated scene title\",\n"
+        "  \"text\": \"Rewritten scene text\",\n"
+        "  \"beats\": [\"notable beat\"],\n"
+        "  \"notes\": \"Author guidance or follow-up\"\n"
         "}"
     )
 
@@ -930,6 +1131,226 @@ def default_manuscript_analysis() -> Dict[str, Any]:
         "suggestions": ["Continue writing your manuscript"],
         "readabilityScore": 75,
         "chapterInsights": [],
+    }
+
+
+def normalize_chapter_draft(draft: Dict[str, Any], payload: ChapterDraftRequest) -> Dict[str, Any]:
+    title = str(draft.get("title") or payload.chapterTitle).strip()
+    summary = str(draft.get("summary") or payload.outline or "Draft generated from scenes.").strip()
+
+    raw_sections = draft.get("sections") if isinstance(draft, dict) else None
+    sections: List[Dict[str, Any]] = []
+    if isinstance(raw_sections, list):
+        for index, raw in enumerate(raw_sections, start=1):
+            if not isinstance(raw, dict):
+                continue
+            heading = str(raw.get("heading") or raw.get("title") or f"Scene {index}").strip() or f"Scene {index}"
+            objective = str(raw.get("objective") or raw.get("purpose") or "").strip()
+            beats_raw = raw.get("beats") or raw.get("keyBeats") or []
+            if isinstance(beats_raw, str):
+                beats = [beats_raw.strip()] if beats_raw.strip() else []
+            elif isinstance(beats_raw, list):
+                beats = [str(item).strip() for item in beats_raw if str(item).strip()]
+            else:
+                beats = []
+
+            text_field = raw.get("text") or raw.get("draft") or raw.get("draftParagraphs")
+            paragraphs: List[str] = []
+            if isinstance(text_field, str):
+                cleaned = text_field.strip()
+                if cleaned:
+                    paragraphs = [cleaned]
+            elif isinstance(text_field, list):
+                paragraphs = [str(item).strip() for item in text_field if str(item).strip()]
+
+            if not paragraphs:
+                paragraphs = []
+
+            sections.append(
+                {
+                    "heading": heading,
+                    "objective": objective,
+                    "beats": beats,
+                    "text": paragraphs,
+                }
+            )
+
+    if not sections:
+        sections = []
+        for index, scene in enumerate(payload.scenes, start=1):
+            text = (scene.text or "").strip()
+            if not text and not (scene.notes or "").strip():
+                continue
+            sections.append(
+                {
+                    "heading": scene.title or f"Scene {index}",
+                    "objective": (scene.notes or "").strip(),
+                    "beats": [],
+                    "text": [text] if text else [],
+                }
+            )
+
+    style_notes_raw = draft.get("styleNotes") or draft.get("notes") or draft.get("reminders")
+    if isinstance(style_notes_raw, str):
+        style_notes = [style_notes_raw.strip()] if style_notes_raw.strip() else []
+    elif isinstance(style_notes_raw, list):
+        style_notes = [str(item).strip() for item in style_notes_raw if str(item).strip()]
+    else:
+        style_notes = []
+
+    return {
+        "title": title or payload.chapterTitle,
+        "summary": summary or payload.outline or "Draft generated from scenes.",
+        "sections": sections,
+        "styleNotes": style_notes,
+    }
+
+
+def default_chapter_draft(payload: ChapterDraftRequest) -> Dict[str, Any]:
+    return normalize_chapter_draft(
+        {
+            "title": payload.chapterTitle,
+            "summary": payload.outline or "Draft generated from scenes.",
+            "sections": [
+                {
+                    "heading": scene.title or f"Scene {index}",
+                    "objective": (scene.notes or "").strip(),
+                    "beats": [],
+                    "text": [scene.text.strip()] if scene.text and scene.text.strip() else [],
+                }
+                for index, scene in enumerate(payload.scenes, start=1)
+                if (scene.text and scene.text.strip()) or (scene.notes and scene.notes.strip())
+            ],
+            "styleNotes": ["Draft synthesized from provided scenes without model guidance."],
+        },
+        payload,
+    )
+
+
+def normalize_scene_plan(plan: Any, payload: ScenePlanRequest) -> List[Dict[str, Any]]:
+    scenes = []
+    if isinstance(plan, dict):
+        raw_scenes = plan.get("scenes")
+    elif isinstance(plan, list):
+        raw_scenes = plan
+    else:
+        raw_scenes = None
+
+    if isinstance(raw_scenes, list):
+        for index, item in enumerate(raw_scenes, start=1):
+            if not isinstance(item, dict):
+                continue
+            title = (item.get("title") or item.get("name") or f"Scene {index}").strip()
+            scene_type = (item.get("type") or item.get("sceneType") or "general").strip()
+            summary = (item.get("summary") or item.get("description") or "").strip()
+            purpose = (item.get("purpose") or item.get("goal") or item.get("objective") or "").strip()
+            notes = (item.get("notes") or item.get("reminder") or "").strip()
+            tone = (item.get("tone") or item.get("mood") or "").strip()
+            length = (item.get("length") or item.get("pace") or "medium").strip()
+            setting = (item.get("setting") or item.get("location") or "").strip()
+            beats = item.get("beats") or item.get("keyBeats") or []
+            if isinstance(beats, str):
+                beats = [beat.strip() for beat in beats.split(";") if beat.strip()]
+            elif isinstance(beats, list):
+                beats = [str(beat).strip() for beat in beats if str(beat).strip()]
+            else:
+                beats = []
+
+            if isinstance(item.get("text"), str) and item["text"].strip():
+                text = item["text"].strip()
+            elif isinstance(item.get("draft"), str) and item["draft"].strip():
+                text = item["draft"].strip()
+            else:
+                beat_block = "\n".join(f"- {beat}" for beat in beats) if beats else ""
+                text = "\n\n".join(part for part in [summary, beat_block] if part)
+
+            scenes.append(
+                {
+                    "title": title or f"Scene {index}",
+                    "type": scene_type or "general",
+                    "summary": summary,
+                    "purpose": purpose,
+                    "beats": beats,
+                    "notes": notes,
+                    "tone": tone,
+                    "length": length or "medium",
+                    "setting": setting,
+                    "text": text,
+                }
+            )
+
+    return scenes
+
+
+def default_scene_plan(payload: ScenePlanRequest) -> List[Dict[str, Any]]:
+    outline = payload.chapterOutline.split('\n')
+    desired = payload.desiredScenes or 4
+    default_titles = [
+        "Opening Beat",
+        "Rising Complication",
+        "Turning Point",
+        "Outcome"
+    ]
+    scenes: List[Dict[str, Any]] = []
+    for index in range(desired):
+        title = default_titles[index] if index < len(default_titles) else f"Scene {index + 1}"
+        summary = outline[index] if index < len(outline) else outline[-1] if outline else payload.chapterOutline
+        scenes.append(
+            {
+                "title": title,
+                "type": "general",
+                "summary": summary.strip() if summary else "Scene placeholder generated locally.",
+                "purpose": "Advance the chapter narrative.",
+                "beats": [],
+                "notes": "Add detail once the AI planner is available.",
+                "tone": "",
+                "length": "medium",
+                "setting": "",
+                "text": summary.strip() if summary else payload.chapterOutline,
+            }
+        )
+    return scenes
+
+
+def normalize_refined_scene(refined: Any, payload: SceneRefineRequest) -> Dict[str, Any]:
+    if not isinstance(refined, dict):
+        return {}
+    text = refined.get("text") or refined.get("scene")
+    if not isinstance(text, str) or not text.strip():
+        return {}
+
+    title = refined.get("title") or payload.sceneTitle
+    beats = refined.get("beats") or refined.get("keyBeats") or []
+    if isinstance(beats, str):
+        beats = [beat.strip() for beat in beats.split(";") if beat.strip()]
+    elif isinstance(beats, list):
+        beats = [str(beat).strip() for beat in beats if str(beat).strip()]
+    else:
+        beats = []
+
+    notes = refined.get("notes") or refined.get("guidance") or ""
+
+    return {
+        "title": str(title).strip() or payload.sceneTitle,
+        "text": text.strip(),
+        "beats": beats,
+        "notes": notes.strip() if isinstance(notes, str) else "",
+    }
+
+
+def default_refined_scene(payload: SceneRefineRequest) -> Dict[str, Any]:
+    words = payload.sceneText.split()
+    if payload.mode == "tighten":
+        keep = max(1, int(len(words) * 0.7))
+        truncated = " ".join(words[:keep])
+    else:
+        truncated = payload.sceneText + "\n\n[Expand this scene with richer detail when the AI service is available.]"
+
+    return {
+        "title": payload.sceneTitle,
+        "text": truncated.strip(),
+        "beats": [],
+        "notes": "Scene adjusted locally due to service fallback.",
     }
 
 
