@@ -93,6 +93,11 @@ class SceneAnalysisRequest(BaseModel):
     sceneType: Optional[str] = None
 
 
+class CharacterInfo(BaseModel):
+    name: str = Field(..., min_length=1)
+    description: Optional[str] = ""
+
+
 class SceneInput(BaseModel):
     title: str = Field(default="Scene")
     type: Optional[str] = None
@@ -105,6 +110,8 @@ class ChapterDraftRequest(BaseModel):
     outline: Optional[str] = ""
     scenes: List[SceneInput] = Field(default_factory=list)
     directives: Optional[str] = None
+    mainCharacters: List[CharacterInfo] = Field(default_factory=list)
+    supportingCharacters: List[CharacterInfo] = Field(default_factory=list)
 
 
 class ScenePlanRequest(BaseModel):
@@ -113,6 +120,8 @@ class ScenePlanRequest(BaseModel):
     desiredScenes: Optional[int] = Field(default=None, ge=1, le=20)
     sceneFocus: Optional[str] = None
     directives: Optional[str] = None
+    mainCharacters: List[CharacterInfo] = Field(default_factory=list)
+    supportingCharacters: List[CharacterInfo] = Field(default_factory=list)
 
 
 class SceneRefineRequest(BaseModel):
@@ -123,6 +132,8 @@ class SceneRefineRequest(BaseModel):
     mode: Literal["expand", "tighten"] = Field(default="expand")
     directives: Optional[str] = None
     targetWords: Optional[int] = Field(default=None, ge=50, le=2000)
+    mainCharacters: List[CharacterInfo] = Field(default_factory=list)
+    supportingCharacters: List[CharacterInfo] = Field(default_factory=list)
 
 
 class ReadabilityRequest(BaseModel):
@@ -743,6 +754,7 @@ def build_chapter_draft_prompt(payload: ChapterDraftRequest) -> str:
     scenes_json = json.dumps(scene_payload, ensure_ascii=False)
     directive_line = directives or "None"
     outline_line = outline or "No outline provided."
+    character_brief = build_character_brief(payload.mainCharacters, payload.supportingCharacters)
 
     return (
         "You are a collaborative novelist tasked with weaving polished prose from structured scene drafts."
@@ -750,6 +762,7 @@ def build_chapter_draft_prompt(payload: ChapterDraftRequest) -> str:
         f"Chapter Title: {payload.chapterTitle}\n"
         f"Chapter Outline: {outline_line}\n"
         f"Additional Directives: {directive_line}\n\n"
+        f"{character_brief}"
         "Scenes (JSON order reflects narrative progression):\n"
         f"{scenes_json}\n\n"
         "Respond with ONLY a valid JSON object (no markdown formatting) following this exact schema:\n"
@@ -804,6 +817,7 @@ def build_scene_plan_prompt(payload: ScenePlanRequest) -> str:
     focus_line = f"Scene focus guidance: {focus}\n" if focus else ""
     directives = (payload.directives or "").strip()
     directives_line = directives if directives else "None"
+    character_brief = build_character_brief(payload.mainCharacters, payload.supportingCharacters)
 
     return (
         "You are a narrative designer turning a chapter outline into a sequence of scenes."
@@ -812,6 +826,7 @@ def build_scene_plan_prompt(payload: ScenePlanRequest) -> str:
         f"Target Scene Count: {desired}\n"
         f"Chapter Outline:\n{outline}\n\n"
         f"{focus_line}Additional directives: {directives_line}\n\n"
+        f"{character_brief}"
         "Respond with ONLY a valid JSON object using this schema (no markdown):\n"
         "{\n"
         "  \"scenes\": [\n"
@@ -841,6 +856,7 @@ def build_scene_refine_prompt(payload: SceneRefineRequest) -> str:
     mode = payload.mode.lower()
     target = payload.targetWords if payload.targetWords else (220 if mode == "expand" else 140)
     action = "Expand" if mode == "expand" else "Tighten"
+    character_brief = build_character_brief(payload.mainCharacters, payload.supportingCharacters)
 
     outline_block = f"Chapter Outline: {outline}\n\n" if outline else ""
     directives_line = directives if directives else "None"
@@ -854,7 +870,7 @@ def build_scene_refine_prompt(payload: SceneRefineRequest) -> str:
         f"Current Scene Words: {len(payload.sceneText.split())}\n"
         f"Target Word Count: about {target}\n"
         f"Additional directives: {directives_line}\n\n"
-        f"{outline_block}Current Scene Text:\n{payload.sceneText}\n\n"
+        f"{character_brief}{outline_block}Current Scene Text:\n{payload.sceneText}\n\n"
         "Respond with ONLY a valid JSON object in this exact shape:\n"
         "{\n"
         "  \"title\": \"Updated scene title\",\n"
@@ -1541,3 +1557,16 @@ def coerce_json(raw: str) -> Optional[Any]:
 
 
 app = create_app()
+def build_character_brief(main: List[CharacterInfo], supporting: List[CharacterInfo]) -> str:
+    if not main and not supporting:
+        return ""
+
+    def render(section: str, characters: List[CharacterInfo]) -> str:
+        if not characters:
+            return ""
+        lines = [f"{char.name}: {char.description}".strip().rstrip(':') for char in characters]
+        return f"{section}:\n" + "\n".join(f"- {line}" for line in lines if line)
+
+    parts = [render("Main Characters", main), render("Supporting Characters", supporting)]
+    joined = "\n\n".join(part for part in parts if part)
+    return f"Character Roster:\n{joined}\n\n" if joined else ""

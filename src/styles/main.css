@@ -2715,6 +2715,33 @@ body {
   color: var(--text-primary);
 }
 
+.chapter-characters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.character-field label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 0.4rem;
+  color: var(--text-secondary);
+}
+
+.character-field textarea {
+  width: 100%;
+  min-height: 140px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  resize: vertical;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
 .chapter-content-input {
   width: 100%;
   padding: 1rem;
@@ -2746,6 +2773,18 @@ body {
   color: var(--text-secondary);
   line-height: 1.5;
   white-space: pre-wrap;
+}
+
+.chapter-character-preview {
+  display: grid;
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+
+.chapter-character-preview ul {
+  margin: 0.25rem 0 0 1.5rem;
+  padding: 0;
+  color: var(--text-secondary);
 }
 
 .manuscript-actions {

@@ -32,6 +32,7 @@ class ManuscriptChapterPayload(BaseModel):
     wordCount: Optional[int] = 0
     status: Optional[str] = "draft"
     createdAt: Optional[str] = None
+    metadata: Optional[dict] = None
 
 
 class ManuscriptSaveRequest(BaseModel):
@@ -220,6 +221,7 @@ async def save_manuscript(payload: ManuscriptSaveRequest, session: Session = Dep
         plain = strip_html(content_html)
         if not plain and item.outline:
             plain = item.outline
+        metadata_json = serialize_chapter_metadata(item.metadata)
         incoming_id = None
         if item.id is not None:
             try:
@@ -236,6 +238,7 @@ async def save_manuscript(payload: ManuscriptSaveRequest, session: Session = Dep
             chapter.word_count = item.wordCount or len(plain.split())
             chapter.status = item.status or chapter.status
             chapter.updated_at = now
+            chapter.metadata_json = metadata_json
             retained_ids.add(incoming_id)
         else:
             chapter = ManuscriptChapter(
@@ -248,6 +251,7 @@ async def save_manuscript(payload: ManuscriptSaveRequest, session: Session = Dep
                 status=item.status or "draft",
                 created_at=parse_client_datetime(item.createdAt) or now,
                 updated_at=now,
+                metadata_json=metadata_json,
             )
             session.add(chapter)
             session.flush()
@@ -379,7 +383,47 @@ async def save_shot_list(payload: ShotListSaveRequest, session: Session = Depend
     }
 
 
+def normalize_character_list(raw) -> list[dict]:
+    normalized: list[dict] = []
+    if isinstance(raw, list):
+        for entry in raw:
+            if isinstance(entry, dict):
+                name = str(entry.get("name", "")).strip()
+                if not name:
+                    continue
+                normalized.append({
+                    "name": name,
+                    "description": str(entry.get("description", "")).strip(),
+                })
+            elif isinstance(entry, str) and entry.strip():
+                normalized.append({"name": entry.strip(), "description": ""})
+    elif isinstance(raw, str) and raw.strip():
+        normalized.append({"name": raw.strip(), "description": ""})
+    return normalized
+
+
+def normalize_chapter_metadata(raw) -> dict:
+    if not raw or not isinstance(raw, dict):
+        return {"mainCharacters": [], "supportingCharacters": []}
+    return {
+        "mainCharacters": normalize_character_list(raw.get("mainCharacters")),
+        "supportingCharacters": normalize_character_list(raw.get("supportingCharacters")),
+    }
+
+
+def serialize_chapter_metadata(metadata: dict | None) -> str:
+    normalized = normalize_chapter_metadata(metadata or {})
+    return json.dumps(normalized, ensure_ascii=False)
+
+
 def chapter_to_dict(chapter: ManuscriptChapter, scenes) -> dict:
+    metadata = {}
+    if chapter.metadata_json:
+        try:
+            metadata = json.loads(chapter.metadata_json)
+        except json.JSONDecodeError:
+            metadata = {}
+    metadata = normalize_chapter_metadata(metadata)
     return {
         "id": chapter.id,
         "title": chapter.title,
@@ -389,6 +433,7 @@ def chapter_to_dict(chapter: ManuscriptChapter, scenes) -> dict:
         "status": chapter.status,
         "createdAt": chapter.created_at.isoformat(),
         "scenes": scenes,
+        "metadata": metadata,
     }
 
 

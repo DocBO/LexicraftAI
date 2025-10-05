@@ -23,6 +23,7 @@ class ManuscriptChapter(SQLModel, table=True):
     status: str = "draft"
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+    metadata_json: str = ""
 
 
 class ChapterScene(SQLModel, table=True):

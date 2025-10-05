@@ -23,6 +23,11 @@ const defaultScene = (index = 0, overrides = {}) => ({
   updatedAt: overrides.updatedAt || new Date().toISOString(),
 });
 
+const defaultChapterMetadata = () => ({
+  mainCharacters: [],
+  supportingCharacters: [],
+});
+
 const createDefaultStore = () => {
   const firstScene = defaultScene();
   return {
@@ -31,10 +36,42 @@ const createDefaultStore = () => {
         chapterTitle: 'Standalone Scenes',
         outline: '',
         scenes: [firstScene],
+        metadata: defaultChapterMetadata(),
       }
     },
     currentChapterId: 'standalone',
     currentSceneId: firstScene.id,
+  };
+};
+
+const normalizeChapterMetadata = (metadata) => {
+  const normalizeList = (list) => {
+    if (!Array.isArray(list)) return [];
+    return list
+      .map(item => {
+        if (!item) return null;
+        if (typeof item === 'string') {
+          const name = item.trim();
+          if (!name) return null;
+          return { name, description: '' };
+        }
+        const name = String(item.name || '').trim();
+        if (!name) return null;
+        return {
+          name,
+          description: String(item.description || '').trim(),
+        };
+      })
+      .filter(Boolean);
+  };
+
+  if (!metadata || typeof metadata !== 'object') {
+    return defaultChapterMetadata();
+  }
+
+  return {
+    mainCharacters: normalizeList(metadata.mainCharacters),
+    supportingCharacters: normalizeList(metadata.supportingCharacters),
   };
 };
 
@@ -96,6 +133,7 @@ const SceneBuilder = () => {
   const canDraftChapter = scenesWithContent.length > 0 && !composeLoading;
   const previewWordCount = currentDraft ? countDraftWords(currentDraft, currentDraft.prompt || '') : 0;
   const appliedPromptText = (currentDraft?.prompt || actionPrompt || '').trim();
+  const chapterMetadata = normalizeChapterMetadata(currentChapter?.metadata);
 
   useEffect(() => {
     const validIds = new Set(
@@ -313,25 +351,29 @@ const SceneBuilder = () => {
     const chapterId = seed.chapterId ? String(seed.chapterId) : 'standalone';
     setSceneStore(prev => {
       const existingChapter = prev.chapters[chapterId];
-    const baseScene = normalizeScene({
-      id: null,
-      title: seed.title ? `${seed.title} – Scene ${existingChapter ? existingChapter.scenes.length + 1 : 1}` : undefined,
-      type: 'dialogue',
-      text: '',
+      const seedMetadata = normalizeChapterMetadata(seed.metadata);
+      const baseScene = normalizeScene({
+        id: null,
+        title: seed.title ? `${seed.title} – Scene ${existingChapter ? existingChapter.scenes.length + 1 : 1}` : undefined,
+        type: 'dialogue',
+        text: '',
       notes: '',
     }, existingChapter ? existingChapter.scenes.length : 0);
     const scenes = existingChapter ? [...existingChapter.scenes, baseScene] : [baseScene];
     const reindexed = reindexScenes(seed.title || existingChapter?.chapterTitle, scenes);
       const updated = {
         ...prev,
-        chapters: {
-          ...prev.chapters,
-          [chapterId]: {
-            chapterTitle: seed.title || existingChapter?.chapterTitle || 'Untitled Chapter',
-            outline: seed.outline || existingChapter?.outline || '',
-            scenes: reindexed,
+          chapters: {
+            ...prev.chapters,
+            [chapterId]: {
+              chapterTitle: seed.title || existingChapter?.chapterTitle || 'Untitled Chapter',
+              outline: seed.outline || existingChapter?.outline || '',
+              scenes: reindexed,
+              metadata: seedMetadata.mainCharacters.length || seedMetadata.supportingCharacters.length
+                ? seedMetadata
+                : normalizeChapterMetadata(existingChapter?.metadata),
+            },
           },
-        },
         currentChapterId: chapterId,
         currentSceneId: reindexed[reindexed.length - 1].id,
       };
@@ -380,8 +422,8 @@ const SceneBuilder = () => {
 
   const selectChapter = (chapterId) => {
     setSceneStore(prev => {
-      const chapter = prev.chapters[chapterId];
-      if (!chapter) {
+      const existingChapter = prev.chapters[chapterId];
+      if (!existingChapter) {
         const fallbackScene = defaultScene();
         const nextStore = {
           ...prev,
@@ -391,6 +433,7 @@ const SceneBuilder = () => {
               chapterTitle: Number.isInteger(Number(chapterId)) ? `Chapter ${chapterId}` : 'Standalone Scenes',
               outline: '',
               scenes: [fallbackScene],
+              metadata: defaultChapterMetadata(),
             },
           },
           currentChapterId: chapterId,
@@ -398,11 +441,19 @@ const SceneBuilder = () => {
         };
         return nextStore;
       }
-      const nextSceneId = chapter.scenes[0]?.id || defaultScene().id;
+      const normalizedChapter = {
+        ...existingChapter,
+        metadata: normalizeChapterMetadata(existingChapter.metadata),
+      };
+      const nextSceneId = normalizedChapter.scenes[0]?.id || defaultScene().id;
       return {
         ...prev,
         currentChapterId: chapterId,
         currentSceneId: nextSceneId,
+        chapters: {
+          ...prev.chapters,
+          [chapterId]: normalizedChapter,
+        },
       };
     });
   };
@@ -543,6 +594,7 @@ const SceneBuilder = () => {
           outline,
           content: htmlContent,
           wordCount,
+          metadata: normalizeChapterMetadata(chapter.metadata || chapterMetadata),
         };
       }
       return chapter;
@@ -557,6 +609,7 @@ const SceneBuilder = () => {
         wordCount,
         status: 'draft',
         createdAt: new Date().toISOString(),
+        metadata: chapterMetadata,
       });
     }
 
@@ -622,6 +675,8 @@ const SceneBuilder = () => {
         outline: currentChapter.outline,
         desiredScenes: currentScenes.length || undefined,
         directives: actionPrompt,
+        mainCharacters: chapterMetadata.mainCharacters,
+        supportingCharacters: chapterMetadata.supportingCharacters,
       });
 
       const scenes = Array.isArray(response?.scenes) ? response.scenes : [];
@@ -640,12 +695,25 @@ const SceneBuilder = () => {
           ? scene.text.trim()
           : [scene.summary, beatsBlock].filter(Boolean).join('\n\n');
 
+        const characterNotes = [];
+        if (chapterMetadata.mainCharacters.length) {
+          characterNotes.push(
+            `Main: ${chapterMetadata.mainCharacters.map(char => char.name).join(', ')}`
+          );
+        }
+        if (chapterMetadata.supportingCharacters.length) {
+          characterNotes.push(
+            `Supporting: ${chapterMetadata.supportingCharacters.map(char => char.name).join(', ')}`
+          );
+        }
+
         const noteParts = [
           scene.purpose && `Purpose: ${scene.purpose}`,
           scene.tone && `Tone: ${scene.tone}`,
           scene.length && `Suggested Length: ${scene.length}`,
           scene.setting && `Setting: ${scene.setting}`,
           scene.notes,
+          characterNotes.length ? characterNotes.join('\n') : '',
         ].filter(Boolean);
 
         return {
@@ -669,13 +737,24 @@ const SceneBuilder = () => {
       const reindexed = reindexScenes(currentChapter?.chapterTitle, plannedScenes);
 
       setSceneStore(prev => {
-        const chapter = prev.chapters[activeChapterId] || { chapterTitle: 'Untitled Chapter', outline: '', scenes: [] };
+        const existingChapter = prev.chapters[activeChapterId];
+        const normalizedChapter = existingChapter
+          ? {
+              ...existingChapter,
+              metadata: normalizeChapterMetadata(existingChapter.metadata || chapterMetadata),
+            }
+          : {
+              chapterTitle: 'Untitled Chapter',
+              outline: '',
+              scenes: [],
+              metadata: chapterMetadata,
+            };
         return {
           ...prev,
           chapters: {
             ...prev.chapters,
             [activeChapterId]: {
-              ...chapter,
+              ...normalizedChapter,
               scenes: reindexed,
             },
           },
@@ -719,6 +798,8 @@ const SceneBuilder = () => {
         chapterTitle: currentChapter?.chapterTitle || '',
         chapterOutline: currentChapter?.outline || '',
         directives: actionPrompt,
+        mainCharacters: chapterMetadata.mainCharacters,
+        supportingCharacters: chapterMetadata.supportingCharacters,
       });
 
       const refined = response?.scene;
@@ -771,6 +852,8 @@ const SceneBuilder = () => {
           notes: scene.notes,
         })),
         directives: promptText,
+        mainCharacters: chapterMetadata.mainCharacters,
+        supportingCharacters: chapterMetadata.supportingCharacters,
       });
 
       if (!response?.success || !response.draft) {
@@ -1251,6 +1334,7 @@ function normalizeStore(store) {
       chapterTitle: chapter.chapterTitle || 'Untitled Chapter',
       outline: chapter.outline || '',
       scenes,
+      metadata: normalizeChapterMetadata(chapter.metadata),
     };
   });
   if (!Object.keys(normalized.chapters).length) {
@@ -1286,8 +1370,12 @@ function mergeBackendScenes(store, grouped) {
   };
   Object.entries(grouped).forEach(([id, chapter]) => {
     const reindexed = reindexScenes(chapter.chapterTitle, chapter.scenes);
-    chapter.scenes = reindexed;
-    merged.chapters[id] = chapter;
+    merged.chapters[id] = {
+      chapterTitle: chapter.chapterTitle,
+      outline: chapter.outline,
+      scenes: reindexed,
+      metadata: normalizeChapterMetadata(chapter.metadata),
+    };
   });
   if (!merged.chapters[merged.currentChapterId]) {
     merged.currentChapterId = Object.keys(merged.chapters)[0];
@@ -1359,6 +1447,7 @@ function mergeChaptersFromList(store, chapters) {
       chapterTitle: chapter.title || existing?.chapterTitle || `Chapter ${id}`,
       outline: chapter.outline || existing?.outline || '',
       scenes: reindexScenes(chapter.title || existing?.chapterTitle, baseScenes),
+      metadata: normalizeChapterMetadata(chapter.metadata || existing?.metadata),
     };
   });
 
@@ -1373,6 +1462,7 @@ function mergeChaptersFromList(store, chapters) {
       chapterTitle: 'Standalone Scenes',
       outline: '',
       scenes: [defaultScene()],
+      metadata: defaultChapterMetadata(),
     };
   }
   updated.chapters.standalone.scenes = reindexScenes(
@@ -1533,6 +1623,7 @@ function stripChapterForPersistence(chapter) {
     wordCount: chapter.wordCount || 0,
     status: chapter.status || 'draft',
     createdAt: chapter.createdAt,
+    metadata: normalizeChapterMetadata(chapter.metadata),
   };
 }
 

@@ -27,12 +27,95 @@ const getPlainText = (html) => {
   return tempDiv.textContent || tempDiv.innerText || '';
 };
 
+const normalizeCharacter = (entry) => {
+  if (!entry) {
+    return null;
+  }
+  if (typeof entry === 'string') {
+    const [name, ...rest] = entry.split('-');
+    const trimmedName = name.trim();
+    if (!trimmedName) return null;
+    return {
+      name: trimmedName,
+      description: rest.join('-').trim(),
+    };
+  }
+  if (typeof entry === 'object') {
+    const name = String(entry.name || '').trim();
+    if (!name) return null;
+    return {
+      name,
+      description: String(entry.description || '').trim(),
+    };
+  }
+  return null;
+};
+
+const normalizeChapterMetadata = (raw) => {
+  const toList = (value) => {
+    if (!value) return [];
+    if (typeof value === 'string') {
+      return value
+        .split('\n')
+        .map(line => normalizeCharacter(line))
+        .filter(Boolean);
+    }
+    if (Array.isArray(value)) {
+      return value
+        .map(item => normalizeCharacter(item))
+        .filter(Boolean);
+    }
+    return [];
+  };
+
+  if (!raw || typeof raw !== 'object') {
+    return { mainCharacters: [], supportingCharacters: [] };
+  }
+
+  return {
+    mainCharacters: toList(raw.mainCharacters),
+    supportingCharacters: toList(raw.supportingCharacters),
+  };
+};
+
+const formatCharactersInput = (characters = []) => {
+  if (!Array.isArray(characters)) return '';
+  return characters
+    .map(({ name, description }) =>
+      description ? `${name} - ${description}` : name
+    )
+    .join('\n');
+};
+
+const parseCharactersInput = (value) => {
+  if (!value) return [];
+  return value
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean)
+    .map(line => {
+      const [name, ...rest] = line.split('-');
+      return {
+        name: name.trim(),
+        description: rest.join('-').trim(),
+      };
+    });
+};
+
 const ManuscriptManager = () => {
   const { activeProject } = useProject();
   const navigate = useNavigate();
   const storageEnabled = storageService.isBackendEnabled();
+  const createDefaultChapter = () => ({
+    title: '',
+    outline: '',
+    content: '',
+    wordCount: 0,
+    metadata: { mainCharacters: [], supportingCharacters: [] },
+  });
   const [chapters, setChapters] = useState([]);
-  const [currentChapter, setCurrentChapter] = useState({ title: '', outline: '', content: '', wordCount: 0 });
+  const [currentChapter, setCurrentChapter] = useState(createDefaultChapter());
+  const [characterInputs, setCharacterInputs] = useState({ main: '', supporting: '' });
   const [analysis, setAnalysis] = useState(null);
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [factExtractionLoading, setFactExtractionLoading] = useState(false);
@@ -58,6 +141,7 @@ const ManuscriptManager = () => {
           if (!cancelled && response?.chapters) {
             const normalized = response.chapters.map(chapter => ({
               outline: chapter.outline || '',
+              metadata: normalizeChapterMetadata(chapter.metadata),
               ...chapter,
             }));
             setChapters(normalized);
@@ -77,7 +161,11 @@ const ManuscriptManager = () => {
         if (!cancelled && savedChapters) {
           const parsed = JSON.parse(savedChapters);
           const normalized = Array.isArray(parsed)
-            ? parsed.map(chapter => ({ outline: chapter.outline || '', ...chapter }))
+            ? parsed.map(chapter => ({
+                outline: chapter.outline || '',
+                metadata: normalizeChapterMetadata(chapter.metadata),
+                ...chapter,
+              }))
             : [];
           setChapters(normalized);
         }
@@ -111,12 +199,20 @@ const ManuscriptManager = () => {
   }, []);
 
   const persistChapters = async (nextChapters) => {
-    setChapters(nextChapters);
+    const normalizedInput = nextChapters.map(chapter => ({
+      ...chapter,
+      metadata: normalizeChapterMetadata(chapter.metadata),
+    }));
+    setChapters(normalizedInput);
     if (storageEnabled) {
       try {
-        const saved = await storageService.saveManuscript(nextChapters, activeProject);
+        const saved = await storageService.saveManuscript(normalizedInput, activeProject);
         if (saved?.chapters) {
-          const normalized = saved.chapters.map(chapter => ({ outline: chapter.outline || '', ...chapter }));
+          const normalized = saved.chapters.map(chapter => ({
+            outline: chapter.outline || '',
+            metadata: normalizeChapterMetadata(chapter.metadata),
+            ...chapter,
+          }));
           setChapters(normalized);
           return normalized;
         }
@@ -125,9 +221,9 @@ const ManuscriptManager = () => {
       }
     } else {
       const key = `manuscript_chapters_${activeProject}`;
-      localStorage.setItem(key, JSON.stringify(nextChapters));
+      localStorage.setItem(key, JSON.stringify(normalizedInput));
     }
-    return nextChapters;
+    return normalizedInput;
   };
 
   const openInSceneBuilder = (chapter) => {
@@ -138,6 +234,7 @@ const ManuscriptManager = () => {
       status: chapter.status,
       chapterId: chapter.id,
       timestamp: new Date().toISOString(),
+      metadata: normalizeChapterMetadata(chapter.metadata),
     };
 
     try {
@@ -153,6 +250,10 @@ const ManuscriptManager = () => {
     if (!storageReady) return;
     if (!currentChapter.title.trim()) return;
     const plainContent = getPlainText(currentChapter.content);
+    const metadata = {
+      mainCharacters: parseCharactersInput(characterInputs.main),
+      supportingCharacters: parseCharactersInput(characterInputs.supporting),
+    };
 
     const newChapter = {
       id: Date.now(),
@@ -161,12 +262,14 @@ const ManuscriptManager = () => {
       content: currentChapter.content,
       wordCount: plainContent.split(' ').filter(w => w).length,
       createdAt: new Date().toLocaleDateString(),
-      status: 'draft'
+      status: 'draft',
+      metadata,
     };
 
     const next = [...chapters, newChapter];
     await persistChapters(next);
-    setCurrentChapter({ title: '', outline: '', content: '', wordCount: 0 });
+    setCurrentChapter(createDefaultChapter());
+    setCharacterInputs({ main: '', supporting: '' });
   };
 
   const updateChapter = async (id, updatedChapter) => {
@@ -176,6 +279,7 @@ const ManuscriptManager = () => {
         ? { 
             ...chapter, 
             ...updatedChapter, 
+            metadata: normalizeChapterMetadata(updatedChapter.metadata),
             wordCount: getPlainText(updatedChapter.content).split(' ').filter(w => w).length 
           }
         : chapter
@@ -381,6 +485,21 @@ const ManuscriptManager = () => {
     }));
   };
 
+  const handleCharacterInputChange = (type, value) => {
+    setCharacterInputs(prev => ({
+      ...prev,
+      [type]: value,
+    }));
+    setCurrentChapter(prev => ({
+      ...prev,
+      metadata: {
+        ...prev.metadata,
+        mainCharacters: type === 'main' ? parseCharactersInput(value) : prev.metadata.mainCharacters,
+        supportingCharacters: type === 'supporting' ? parseCharactersInput(value) : prev.metadata.supportingCharacters,
+      },
+    }));
+  };
+
   const totalWordCount = chapters.reduce((total, chapter) => total + chapter.wordCount, 0);
   const averageChapterLength = chapters.length > 0 ? Math.round(totalWordCount / chapters.length) : 0;
 
@@ -424,6 +543,29 @@ const ManuscriptManager = () => {
           className="chapter-outline-input"
           rows={4}
         />
+        
+        <div className="chapter-characters">
+          <div className="character-field">
+            <label>Main Characters</label>
+            <textarea
+              value={characterInputs.main}
+              onChange={(e) => handleCharacterInputChange('main', e.target.value)}
+              placeholder="One per line. Example: Alice - Protagonist leading the heist"
+              rows={4}
+              spellCheck={false}
+            />
+          </div>
+          <div className="character-field">
+            <label>Supporting Characters</label>
+            <textarea
+              value={characterInputs.supporting}
+              onChange={(e) => handleCharacterInputChange('supporting', e.target.value)}
+              placeholder="One per line. Example: Morgan - Team pilot"
+              rows={4}
+              spellCheck={false}
+            />
+          </div>
+        </div>
         
         <ReactQuill
           value={currentChapter.content}
@@ -617,6 +759,37 @@ const ChapterDisplay = ({ chapter, index, onEdit, onDelete, onDevelopScenes }) =
       </div>
     )}
 
+    {(chapter.metadata?.mainCharacters?.length || chapter.metadata?.supportingCharacters?.length) && (
+      <div className="chapter-character-preview">
+        {chapter.metadata?.mainCharacters?.length > 0 && (
+          <div>
+            <strong>Main Characters:</strong>
+            <ul>
+              {chapter.metadata.mainCharacters.map((character, idx) => (
+                <li key={idx}>
+                  <span>{character.name}</span>
+                  {character.description && <em> — {character.description}</em>}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {chapter.metadata?.supportingCharacters?.length > 0 && (
+          <div>
+            <strong>Supporting Characters:</strong>
+            <ul>
+              {chapter.metadata.supportingCharacters.map((character, idx) => (
+                <li key={idx}>
+                  <span>{character.name}</span>
+                  {character.description && <em> — {character.description}</em>}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    )}
+
     <div className="chapter-preview">
       {(() => {
         const contentPreview = getPlainText(chapter.content).trim();
@@ -635,6 +808,12 @@ const ChapterEditor = ({ chapter, onSave, onCancel }) => {
   const [outline, setOutline] = useState(chapter.outline || '');
   const [content, setContent] = useState(chapter.content);
   const [status, setStatus] = useState(chapter.status);
+  const [mainCharacters, setMainCharacters] = useState(
+    formatCharactersInput(chapter.metadata?.mainCharacters)
+  );
+  const [supportingCharacters, setSupportingCharacters] = useState(
+    formatCharactersInput(chapter.metadata?.supportingCharacters)
+  );
   const editorRef = useRef(null);
 
   useEffect(() => {
@@ -653,8 +832,26 @@ const ChapterEditor = ({ chapter, onSave, onCancel }) => {
     return () => clearTimeout(timer);
   }, []);
 
+  useEffect(() => {
+    setTitle(chapter.title);
+    setOutline(chapter.outline || '');
+    setContent(chapter.content);
+    setStatus(chapter.status);
+    setMainCharacters(formatCharactersInput(chapter.metadata?.mainCharacters));
+    setSupportingCharacters(formatCharactersInput(chapter.metadata?.supportingCharacters));
+  }, [chapter]);
+
   const handleSave = () => {
-    onSave({ title, outline, content, status });
+    onSave({
+      title,
+      outline,
+      content,
+      status,
+      metadata: {
+        mainCharacters: parseCharactersInput(mainCharacters),
+        supportingCharacters: parseCharactersInput(supportingCharacters),
+      },
+    });
   };
 
   return (
@@ -684,6 +881,29 @@ const ChapterEditor = ({ chapter, onSave, onCancel }) => {
         placeholder="Chapter outline..."
       />
       
+      <div className="chapter-characters">
+        <div className="character-field">
+          <label>Main Characters</label>
+          <textarea
+            value={mainCharacters}
+            onChange={(e) => setMainCharacters(e.target.value)}
+            rows={4}
+            placeholder="One per line. Example: Alice - Protagonist leading the heist"
+            spellCheck={false}
+          />
+        </div>
+        <div className="character-field">
+          <label>Supporting Characters</label>
+          <textarea
+            value={supportingCharacters}
+            onChange={(e) => setSupportingCharacters(e.target.value)}
+            rows={4}
+            placeholder="One per line. Example: Morgan - Team pilot"
+            spellCheck={false}
+          />
+        </div>
+      </div>
+
       <ReactQuill
         value={content}
         onChange={setContent}

@@ -562,10 +562,12 @@ class GeminiService {
     }
   }
 
-  async generateChapterDraft({ chapterTitle, outline, scenes, directives }) {
+  async generateChapterDraft({ chapterTitle, outline, scenes, directives, mainCharacters = [], supportingCharacters = [] }) {
     if (!Array.isArray(scenes) || scenes.length === 0) {
       throw new Error('At least one scene is required to compose a chapter draft.');
     }
+
+    const characterBlock = buildCharacterBlock(mainCharacters, supportingCharacters);
 
     if (this.usingBackend) {
       return await this.requestBackend('/api/chapter/draft', {
@@ -578,6 +580,8 @@ class GeminiService {
           notes: scene.notes || '',
         })),
         directives,
+        mainCharacters: characterBlock.main,
+        supportingCharacters: characterBlock.supporting,
       });
     }
 
@@ -595,16 +599,18 @@ class GeminiService {
       ],
     };
 
-    const fallbackPrompt = `Compose a chapter draft for "${chapterTitle}" using the provided scenes.`;
+    const fallbackPrompt = `${characterBlock.text}Compose a chapter draft for "${chapterTitle}" using the provided scenes.`;
     const fallbackPreview = JSON.stringify(fallbackDraft).slice(0, 400);
 
     return { success: true, draft: fallbackDraft, prompt: fallbackPrompt, responsePreview: fallbackPreview };
   }
 
-  async generateScenePlan({ chapterTitle, outline, desiredScenes, directives, sceneFocus }) {
+  async generateScenePlan({ chapterTitle, outline, desiredScenes, directives, sceneFocus, mainCharacters = [], supportingCharacters = [] }) {
     if (!outline || !outline.trim()) {
       throw new Error('A chapter outline is required to plan scenes.');
     }
+
+    const characterBlock = buildCharacterBlock(mainCharacters, supportingCharacters);
 
     if (this.usingBackend) {
       return await this.requestBackend('/api/scene/plan', {
@@ -613,6 +619,8 @@ class GeminiService {
         desiredScenes,
         directives,
         sceneFocus,
+        mainCharacters: characterBlock.main,
+        supportingCharacters: characterBlock.supporting,
       });
     }
 
@@ -633,16 +641,18 @@ class GeminiService {
       };
     });
 
-    const fallbackPrompt = `Outline ${totalScenes} scenes for chapter "${chapterTitle || 'Untitled'}" based on the provided outline.`;
+    const fallbackPrompt = `${characterBlock.text}Outline ${totalScenes} scenes for chapter "${chapterTitle || 'Untitled'}" based on the provided outline.`;
     const fallbackPreview = scenes.map(scene => scene.title).join(', ').slice(0, 400);
 
     return { success: true, scenes, prompt: fallbackPrompt, responsePreview: fallbackPreview };
   }
 
-  async refineSceneText({ mode = 'expand', sceneTitle, sceneText, chapterTitle, chapterOutline, directives, targetWords }) {
+  async refineSceneText({ mode = 'expand', sceneTitle, sceneText, chapterTitle, chapterOutline, directives, targetWords, mainCharacters = [], supportingCharacters = [] }) {
     if (!sceneText || !sceneText.trim()) {
       throw new Error('Scene text is required to refine.');
     }
+
+    const characterBlock = buildCharacterBlock(mainCharacters, supportingCharacters);
 
     if (this.usingBackend) {
       return await this.requestBackend('/api/scene/refine', {
@@ -653,6 +663,8 @@ class GeminiService {
         chapterOutline,
         directives,
         targetWords,
+        mainCharacters: characterBlock.main,
+        supportingCharacters: characterBlock.supporting,
       });
     }
 
@@ -665,7 +677,7 @@ class GeminiService {
       text = `${sceneText}\n\n[Expand this scene with richer detail when connected to the backend.]`;
     }
 
-    const fallbackPrompt = `${mode === 'tighten' ? 'Tighten' : 'Expand'} the scene "${sceneTitle}".`;
+    const fallbackPrompt = `${characterBlock.text}${mode === 'tighten' ? 'Tighten' : 'Expand'} the scene "${sceneTitle}".`;
     const fallbackPreview = text.slice(0, 400);
 
     return {
@@ -1094,3 +1106,36 @@ class GeminiService {
 }
 
 export const geminiService = new GeminiService();
+const normalizeCharacterList = (characters = []) => {
+  if (!Array.isArray(characters)) return [];
+  return characters
+    .map(character => {
+      if (!character) return null;
+      if (typeof character === 'string') {
+        return { name: character, description: '' };
+      }
+      const name = (character.name || '').toString().trim();
+      if (!name) return null;
+      return {
+        name,
+        description: (character.description || '').toString().trim(),
+      };
+    })
+    .filter(Boolean);
+};
+
+const buildCharacterBlock = (mainCharacters = [], supportingCharacters = []) => {
+  const main = normalizeCharacterList(mainCharacters);
+  const supporting = normalizeCharacterList(supportingCharacters);
+  if (!main.length && !supporting.length) {
+    return { main, supporting, text: '' };
+  }
+
+  const render = (title, list) =>
+    list.length
+      ? `${title}:\n${list.map(({ name, description }) => `- ${name}${description ? ` — ${description}` : ''}`).join('\n')}`
+      : '';
+
+  const sections = [render('Main Characters', main), render('Supporting Characters', supporting)].filter(Boolean);
+  return { main, supporting, text: sections.length ? `Character Brief:\n${sections.join('\n\n')}\n\n` : '' };
+};
