@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { geminiService } from '../services/geminiAPI';
 import { useProject } from '../context/ProjectContext';
 import { storageService } from '../services/storageService';
@@ -63,11 +63,28 @@ const PlotAnalyzer = () => {
     );
   }, [plotText, plotType, analysis, chapterSuggestions, actionPrompt, promptPreview, responsePreview, storageKey]);
 
+  const resetAnalysis = useCallback((keepPreviews = false) => {
+    setAnalysis(null);
+    setChapterSuggestions([]);
+    if (!keepPreviews) {
+      setPromptPreview('');
+      setResponsePreview('');
+    }
+    setStatus('');
+  }, []);
+
+  useEffect(() => {
+    resetAnalysis();
+    setAppliedDirectives('');
+  }, [plotType, resetAnalysis]);
+
   const analyzePlot = async () => {
     if (!plotText.trim()) return;
 
     setLoading(true);
     setError('');
+    resetAnalysis();
+    setAppliedDirectives(actionPrompt.trim() ? actionPrompt : '');
     
     try {
       const response = await geminiService.analyzePlotStructure(plotText, plotType, actionPrompt);
