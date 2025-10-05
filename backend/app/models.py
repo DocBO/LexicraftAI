@@ -25,6 +25,20 @@ class ManuscriptChapter(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class ChapterScene(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    chapter_id: int = Field(foreign_key="manuscriptchapter.id", index=True)
+    workspace_id: str = Field(foreign_key="workspace.id", index=True)
+    title: str
+    scene_type: str = "dialogue"
+    text: str = ""
+    notes: str = ""
+    ordering: int = 0
+    metadata_json: str = ""
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class ShotListScript(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     workspace_id: str = Field(foreign_key="workspace.id", unique=True, index=True)

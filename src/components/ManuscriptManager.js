@@ -43,6 +43,7 @@ const ManuscriptManager = () => {
   const [storageReady, setStorageReady] = useState(!storageEnabled);
 
   const sceneSeedKey = useMemo(() => `scene_builder_seed_${activeProject}`, [activeProject]);
+  const sceneStoreKey = useMemo(() => `scene_builder_store_${activeProject}`, [activeProject]);
 
   useEffect(() => {
     let cancelled = false;
@@ -168,8 +169,57 @@ const ManuscriptManager = () => {
 
   const deleteChapter = async (id) => {
     if (!storageReady) return;
+    const chapter = chapters.find(entry => entry.id === id);
+    const confirmed = window.confirm(
+      `Delete chapter "${chapter?.title || 'Untitled'}" and all associated scenes?\n\nThis action cannot be undone.`
+    );
+    if (!confirmed) return;
+
     const next = chapters.filter(chapter => chapter.id !== id);
     await persistChapters(next);
+
+    if (storageEnabled) {
+      try {
+        await storageService.deleteScenes(id, activeProject);
+      } catch (err) {
+        console.warn('Failed to delete scenes from backend', err);
+      }
+    }
+
+    pruneSceneStoreChapter(id);
+    pruneSeed(id);
+  };
+
+  const pruneSceneStoreChapter = (chapterId) => {
+    try {
+      const raw = localStorage.getItem(sceneStoreKey);
+      if (!raw) return;
+      const store = JSON.parse(raw);
+      if (!store?.chapters) return;
+      delete store.chapters[String(chapterId)];
+      if (store.currentChapterId === String(chapterId)) {
+        const remainingIds = Object.keys(store.chapters);
+        store.currentChapterId = remainingIds.find(id => id !== 'standalone') || 'standalone';
+        const scenes = store.chapters[store.currentChapterId]?.scenes || [];
+        store.currentSceneId = scenes[0]?.id || null;
+      }
+      localStorage.setItem(sceneStoreKey, JSON.stringify(store));
+    } catch (err) {
+      console.warn('Failed to prune local scene store', err);
+    }
+  };
+
+  const pruneSeed = (chapterId) => {
+    try {
+      const raw = localStorage.getItem(sceneSeedKey);
+      if (!raw) return;
+      const seed = JSON.parse(raw);
+      if (String(seed?.chapterId) === String(chapterId)) {
+        localStorage.removeItem(sceneSeedKey);
+      }
+    } catch (err) {
+      console.warn('Failed to prune scene seed', err);
+    }
   };
 
   const analyzeManuscript = async () => {

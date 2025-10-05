@@ -62,6 +62,32 @@ export const storageService = {
     });
   },
 
+  async loadScenes(workspaceId = 'default') {
+    if (!this.isBackendEnabled()) {
+      return { workspaceId, scenes: [] };
+    }
+    return await request(`/api/storage/scenes?workspaceId=${encodeURIComponent(workspaceId)}`);
+  },
+
+  async saveScenes(scenes, workspaceId = 'default') {
+    if (!this.isBackendEnabled()) {
+      return { workspaceId, scenes };
+    }
+    return await request('/api/storage/scenes', {
+      method: 'PUT',
+      body: JSON.stringify({ workspaceId, scenes }),
+    });
+  },
+
+  async deleteScenes(chapterId, workspaceId = 'default') {
+    if (!this.isBackendEnabled()) {
+      return { workspaceId, chapterId };
+    }
+    return await request(`/api/storage/scenes/${encodeURIComponent(chapterId)}?workspaceId=${encodeURIComponent(workspaceId)}`, {
+      method: 'DELETE',
+    });
+  },
+
   async loadShotList(workspaceId = 'default') {
     if (!this.isBackendEnabled()) {
       return { workspaceId, script: '', shots: [] };
